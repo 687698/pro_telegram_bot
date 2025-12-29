@@ -125,45 +125,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if contains_url(message_text):
         try:
-            # 1. Delete the message IMMEDIATELY (Priority #1)
+            # 1. Delete Bad Message
             await message.delete()
             
-            # 2. Prepare warning with User Mention
-            # This creates a clickable link to the user (e.g., "Warning to Ali")
+            # 2. Send Warning (Tagging User)
             user_mention = user.mention_html()
+            warning_msg = f"🚫 {user_mention} عزیز، ارسال لینک ممنوع است."
             
-            warning_msg = f"""🚫 <b>اخطار به {user_mention}:</b>
-
-ارسال لینک در این گروه مجاز نیست!
-
-⛔ لطفاً از ارسال لینک‌ها خودداری کنید."""
-            
-            # 3. Send as a NEW message (Not a reply)
             warning = await context.bot.send_message(
                 chat_id=message.chat_id,
                 text=warning_msg,
                 parse_mode="HTML"
             )
             
-            # Log the event
-            await log_spam_event(
-                user.id,
-                user.username or "Unknown",
-                "link",
-                message_text[:100],
-                message.chat_id
-            )
-            
-            # Delete warning message after 10 seconds (Clean up chat)
+            # 3. Delete Warning after 5 SECONDS
             context.job_queue.run_once(
                 lambda ctx: ctx.bot.delete_message(message.chat_id, warning.message_id),
-                when=10,
-                name=f"delete_link_warning_{warning.message_id}"
+                when=5, # <--- Short time
+                name=f"delete_link_{warning.message_id}"
             )
-            return
             
+            await log_spam_event(user.id, user.username or "Unknown", "link", message_text[:100], message.chat_id)
+            return
         except Exception as e:
-            logger.error(f"خطا در حذف پیام حاوی لینک: {e}")
+            logger.error(f"Error: {e}")
             return
     
     # ==================== BANNED WORDS DETECTION ====================
@@ -189,41 +174,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if found_banned_words:
             try:
-                # 1. Delete the message IMMEDIATELY
+                # 1. Delete Bad Message
                 await message.delete()
                 
-                # 2. Prepare warning with User Mention
+                # 2. Send Warning
                 user_mention = user.mention_html()
+                warning_msg = f"🚫 {user_mention} عزیز، لطفاً از کلمات مناسب استفاده کنید."
                 
-                warning_msg = f"""🚫 <b>اخطار به {user_mention}:</b>
-
-ارسال کلمات ممنوعه (حتی به صورت مخفی) در این گروه مجاز نیست!
-
-⛔ لطفاً رعایت قوانین گروه کنید."""
-                
-                # 3. Send as a NEW message (Not a reply)
                 warning = await context.bot.send_message(
                     chat_id=message.chat_id,
                     text=warning_msg,
                     parse_mode="HTML"
                 )
                 
-                # Log the event
-                await log_spam_event(
-                    user.id,
-                    user.username or "Unknown",
-                    "banned_word",
-                    message_text[:100],
-                    message.chat_id
-                )
-                
-                # Delete warning message after 10 seconds
+                # 3. Delete Warning after 5 SECONDS
                 context.job_queue.run_once(
                     lambda ctx: ctx.bot.delete_message(message.chat_id, warning.message_id),
-                    when=10,
-                    name=f"delete_banned_word_warning_{warning.message_id}"
+                    when=5, # <--- Short time
+                    name=f"delete_word_{warning.message_id}"
                 )
-                return
                 
+                await log_spam_event(user.id, user.username or "Unknown", "banned_word", message_text[:100], message.chat_id)
+                return
             except Exception as e:
-                logger.error(f"خطا در حذف کلمات ممنوعه: {e}")
+                logger.error(f"Error: {e}")

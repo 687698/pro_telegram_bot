@@ -47,33 +47,36 @@ async def delete_messages(context: ContextTypes.DEFAULT_TYPE, chat_id: int, mess
 
 
 async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /warn command - Warn a user (Admin only)"""
+    """Handle /warn command - Warn a user (Flash Mode)"""
     if not update.message or not update.effective_user:
         return
     
     # Check admin permissions
     if not await is_admin(update, context):
-        await update.message.reply_text("❌ فقط مدیران می‌تواند از این دستور استفاده کنند.")
         return
+
+    # 1. Delete Admin's Command IMMEDIATELY
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
     
     # Check if replying to a message
     if not update.message.reply_to_message or not update.message.reply_to_message.from_user:
-        await update.message.reply_text("⚠️ لطفاً به پیام کاربر پاسخ دهید.")
+        # Send error, delete after 3s
+        msg = await context.bot.send_message(chat_id=update.message.chat_id, text="⚠️ لطفاً به پیام کاربر پاسخ دهید.")
+        context.job_queue.run_once(lambda ctx: ctx.bot.delete_message(update.message.chat_id, msg.message_id), when=3)
         return
     
     target_user = update.message.reply_to_message.from_user
-    admin = update.effective_user
     
     # Add warning to database
     new_warn_count = db.add_warn(target_user.id)
     
     if new_warn_count is None:
-        await update.message.reply_text("❌ خطا در اضافه کردن اخطار.")
         return
-    
-    logger.info(f"کاربر {target_user.id} توسط {admin.id} اخطار داده شد. تعداد اخطار: {new_warn_count}")
-    
-    # Send warning message
+
+    # Prepare Message
     if new_warn_count >= 3:
         # Mute the user
         try:
@@ -82,98 +85,85 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 user_id=target_user.id,
                 permissions=ChatPermissions(can_send_messages=False)
             )
-            
-            warning_msg = f"""🚫 کاربر {target_user.mention_html()} مسدود شد!
-
-📊 اخطار: {new_warn_count}/3
-💬 دلیل: اخطار‌های متعدد"""
-        except Exception as e:
-            logger.error(f"خطا در مسدود کردن کاربر: {e}")
-            warning_msg = f"""⚠️ اخطار برای {target_user.mention_html()}
-
-📊 اخطار: {new_warn_count}/3
-🚨 شما مسدود شدید!"""
+            warning_msg = f"🚫 کاربر {target_user.mention_html()} به دلیل دریافت ۳ اخطار مسدود شد!"
+        except Exception:
+            warning_msg = f"🚫 اخطار سوم برای {target_user.mention_html()} (خطا در مسدود سازی)"
     else:
-        warning_msg = f"""⚠️ اخطار برای {target_user.mention_html()}
-
-📊 اخطار: {new_warn_count}/3
-⏰ {3 - new_warn_count} اخطار باقی‌مانده تا مسدود شدن"""
+        warning_msg = f"⚠️ اخطار برای {target_user.mention_html()}\n📊 تعداد: {new_warn_count}/3"
     
-    # Send warning and schedule deletion
-    response = await update.message.reply_text(warning_msg, parse_mode="HTML")
+    # 2. Send Warning
+    response = await context.bot.send_message(
+        chat_id=update.message.chat_id,
+        text=warning_msg,
+        parse_mode="HTML"
+    )
     
-    # Delete messages after 5 seconds
+    # 3. Delete Warning after 10 SECONDS (Give them time to read it)
     context.job_queue.run_once(
-        lambda ctx: delete_messages(ctx, update.message.chat_id, response.message_id, update.message.message_id),
-        when=5,
-        name=f"delete_warn_{response.message_id}"
+        lambda ctx: ctx.bot.delete_message(update.message.chat_id, response.message_id),
+        when=10, 
+        name=f"del_warn_{response.message_id}"
     )
 
 
 async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /ban command - Ban a user (Admin only)"""
+    """Handle /ban command - Ban a user (Flash Mode)"""
     if not update.message or not update.effective_user:
         return
     
-    # Check admin permissions
     if not await is_admin(update, context):
-        await update.message.reply_text("❌ فقط مدیران می‌تواند از این دستور استفاده کنند.")
         return
+
+    # 1. Delete Admin's Command
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
     
-    # Check if replying to a message
-    if not update.message.reply_to_message or not update.message.reply_to_message.from_user:
-        await update.message.reply_text("⚠️ لطفاً به پیام کاربر پاسخ دهید.")
+    if not update.message.reply_to_message:
+        msg = await context.bot.send_message(chat_id=update.message.chat_id, text="⚠️ لطفاً به پیام کاربر پاسخ دهید.")
+        context.job_queue.run_once(lambda ctx: ctx.bot.delete_message(update.message.chat_id, msg.message_id), when=3)
         return
     
     target_user = update.message.reply_to_message.from_user
     
     try:
-        # Ban the user
-        await context.bot.ban_chat_member(
-            chat_id=update.message.chat_id,
-            user_id=target_user.id
-        )
-        
-        ban_msg = f"""🚫 کاربر {target_user.mention_html()} از گروه حذف شد.
-
-⚠️ این کاربر دیگر نمی‌تواند به گروه برگردد."""
-        
-        logger.info(f"کاربر {target_user.id} توسط {update.effective_user.id} بن شد")
-        
+        await context.bot.ban_chat_member(chat_id=update.message.chat_id, user_id=target_user.id)
+        ban_msg = f"🚫 کاربر {target_user.mention_html()} از گروه اخراج شد."
     except Exception as e:
-        logger.error(f"خطا در بن کردن کاربر: {e}")
         ban_msg = "❌ خطا در بن کردن کاربر."
     
-    # Send message and schedule deletion
-    response = await update.message.reply_text(ban_msg, parse_mode="HTML")
+    # 2. Send Confirmation
+    response = await context.bot.send_message(chat_id=update.message.chat_id, text=ban_msg, parse_mode="HTML")
     
-    # Delete messages after 5 seconds
+    # 3. Delete Confirmation after 5 seconds
     context.job_queue.run_once(
-        lambda ctx: delete_messages(ctx, update.message.chat_id, response.message_id, update.message.message_id),
+        lambda ctx: ctx.bot.delete_message(update.message.chat_id, response.message_id),
         when=5,
-        name=f"delete_ban_{response.message_id}"
+        name=f"del_ban_{response.message_id}"
     )
 
 
 async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /unmute command - Remove restrictions (Admin only)"""
+    """Handle /unmute command - Unmute a user (Flash Mode)"""
     if not update.message or not update.effective_user:
         return
     
-    # Check admin permissions
     if not await is_admin(update, context):
-        await update.message.reply_text("❌ فقط مدیران می‌تواند از این دستور استفاده کنند.")
         return
+
+    # 1. Delete Admin's Command
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
     
-    # Check if replying to a message
-    if not update.message.reply_to_message or not update.message.reply_to_message.from_user:
-        await update.message.reply_text("⚠️ لطفاً به پیام کاربر پاسخ دهید.")
-        return
+    if not update.message.reply_to_message:
+        return # Just ignore if no reply
     
     target_user = update.message.reply_to_message.from_user
     
     try:
-        # Unmute the user
         await context.bot.restrict_chat_member(
             chat_id=update.message.chat_id,
             user_id=target_user.id,
@@ -184,64 +174,69 @@ async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 can_add_web_page_previews=True
             )
         )
-        
-        unmute_msg = f"""🔊 کاربر {target_user.mention_html()} باز شد.
-
-✅ کاربر می‌تواند دوباره پیام بفرستد."""
-        
-        logger.info(f"کاربر {target_user.id} توسط {update.effective_user.id} باز شد")
-        
-    except Exception as e:
-        logger.error(f"خطا در باز کردن کاربر: {e}")
-        unmute_msg = "❌ خطا در باز کردن کاربر."
+        msg_text = f"🔊 کاربر {target_user.mention_html()} آزاد شد."
+    except Exception:
+        msg_text = "❌ خطا در آزاد کردن کاربر."
     
-    # Send message and schedule deletion
-    response = await update.message.reply_text(unmute_msg, parse_mode="HTML")
+    # 2. Send Confirmation
+    response = await context.bot.send_message(chat_id=update.message.chat_id, text=msg_text, parse_mode="HTML")
     
-    # Delete messages after 5 seconds
+    # 3. Delete Confirmation after 5 seconds
     context.job_queue.run_once(
-        lambda ctx: delete_messages(ctx, update.message.chat_id, response.message_id, update.message.message_id),
+        lambda ctx: ctx.bot.delete_message(update.message.chat_id, response.message_id),
         when=5,
-        name=f"delete_unmute_{response.message_id}"
+        name=f"del_unmute_{response.message_id}"
     )
 
 
 async def addword(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /addword command - Add a banned word (Admin only)"""
+    """Handle /addword command - Add a banned word (Flash Mode)"""
     if not update.message or not update.effective_user:
         return
     
     # Check admin permissions
     if not await is_admin(update, context):
-        await update.message.reply_text("❌ فقط مدیران می‌تواند از این دستور استفاده کنند.")
         return
     
+    # 1. Delete the command message IMMEDIATELY
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
     # Check if word is provided
     if not context.args or len(context.args) == 0:
-        await update.message.reply_text("⚠️ لطفاً یک کلمه برای بن کردن وارد کنید.\n\nمثال: /addword تبلیغ")
+        msg = await context.bot.send_message(
+            chat_id=update.message.chat_id,
+            text="⚠️ لطفاً کلمه را وارد کنید. (مثال: /addword تبلیغ)"
+        )
+        # Delete error after 3 seconds
+        context.job_queue.run_once(
+            lambda ctx: ctx.bot.delete_message(update.message.chat_id, msg.message_id),
+            when=3, name=f"del_{msg.message_id}"
+        )
         return
     
     word = " ".join(context.args).strip()
     
-    if len(word) == 0:
-        await update.message.reply_text("⚠️ کلمه نمی‌تواند خالی باشد.")
-        return
-    
-    # Add word to database
+    # Add to DB
     result = db.add_banned_word(word)
     
     if result is None:
-        response_msg = "⚠️ این کلمه قبلاً در لیست سیاه بوده است."
+        text = f"⚠️ کلمه '{word}' قبلاً وجود داشت."
     else:
-        response_msg = f"✅ کلمه '{word}' به لیست سیاه اضافه شد."
+        text = f"✅ کلمه '{word}' اضافه شد."
         logger.info(f"کلمه '{word}' توسط {update.effective_user.id} اضافه شد")
     
-    # Send message and schedule deletion
-    response = await update.message.reply_text(response_msg)
+    # 2. Send Confirmation
+    response = await context.bot.send_message(
+        chat_id=update.message.chat_id,
+        text=text
+    )
     
-    # Delete messages after 5 seconds
+    # 3. Delete Confirmation after 2 SECONDS (Flash)
     context.job_queue.run_once(
-        lambda ctx: delete_messages(ctx, update.message.chat_id, response.message_id, update.message.message_id),
-        when=5,
-        name=f"delete_addword_{response.message_id}"
+        lambda ctx: ctx.bot.delete_message(update.message.chat_id, response.message_id),
+        when=2, # <--- Disappears very fast
+        name=f"del_{response.message_id}"
     )
