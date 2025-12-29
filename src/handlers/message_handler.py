@@ -54,6 +54,22 @@ def contains_url(text: str) -> bool:
     if re.search(URL_PATTERN, text):
         return True
     
+def normalize_text(text: str) -> str:
+    """
+    Creates a 'skeleton' version of the text to catch hidden bad words.
+    Example: 'ک___و ن...ی' -> 'کونی'
+    """
+    if not text:
+        return ""
+        
+    # 1. Remove all spaces, dots, underscores, dashes, zero-width joiners, commas, symbols
+    clean = re.sub(r'[\s_\.\-\u200c\u200f,،!@#$%^&*()]+', '', text)
+    
+    # 2. Remove repeating characters (e.g., "کوووونی" -> "کونی")
+    clean = re.sub(r'(.)\1+', r'\1', clean)
+    
+    return clean.lower()
+    
     # Check for common URL shortcuts
     url_keywords = ['http://', 'https://', 'www.', '.com', '.ir', '.net', '.org', 't.me', 'bit.ly']
     text_lower = text.lower()
@@ -155,9 +171,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if banned_words:
         found_banned_words = []
         
+        # Create the "Smart Cleaned" version of the message
+        cleaned_message = normalize_text(message_text_lower)
+        
         for banned_word in banned_words:
-            # Check if banned word exists (Simple check for Persian support)
-            if banned_word in message_text_lower:
+            # Check 1: Does it exist normally?
+            check_1 = banned_word in message_text_lower
+            
+            # Check 2: Does it exist in the cleaned version? (Hidden words)
+            check_2 = banned_word in cleaned_message
+            
+            if check_1 or check_2:
                 found_banned_words.append(banned_word)
         
         if found_banned_words:
