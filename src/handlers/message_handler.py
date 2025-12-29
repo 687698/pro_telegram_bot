@@ -125,17 +125,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if contains_url(message_text):
         try:
-            # Delete the message
+            # 1. Delete the message IMMEDIATELY (Priority #1)
             await message.delete()
             
-            # Send Persian warning
-            warning_msg = """🚫 <b>اخطار:</b>
+            # 2. Prepare warning with User Mention
+            # This creates a clickable link to the user (e.g., "Warning to Ali")
+            user_mention = user.mention_html()
+            
+            warning_msg = f"""🚫 <b>اخطار به {user_mention}:</b>
 
 ارسال لینک در این گروه مجاز نیست!
 
 ⛔ لطفاً از ارسال لینک‌ها خودداری کنید."""
             
-            warning = await message.reply_text(warning_msg, parse_mode="HTML")
+            # 3. Send as a NEW message (Not a reply)
+            warning = await context.bot.send_message(
+                chat_id=message.chat_id,
+                text=warning_msg,
+                parse_mode="HTML"
+            )
             
             # Log the event
             await log_spam_event(
@@ -146,16 +154,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 message.chat_id
             )
             
-            # Delete warning message after 10 seconds
+            # Delete warning message after 10 seconds (Clean up chat)
             context.job_queue.run_once(
                 lambda ctx: ctx.bot.delete_message(message.chat_id, warning.message_id),
                 when=10,
                 name=f"delete_link_warning_{warning.message_id}"
-            )
-            
-            logger.warning(
-                f"🔗 لینک توسط {user.id} (@{user.username}) حذف شد. "
-                f"گروه: {message.chat_id}"
             )
             return
             
@@ -186,20 +189,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if found_banned_words:
             try:
-                # Delete the message
+                # 1. Delete the message IMMEDIATELY
                 await message.delete()
                 
-                # Create warning message
-                words_list = "، ".join(found_banned_words)
-                warning_msg = f"""🚫 <b>اخطار:</b>
-
-ارسال کلمات ممنوعه در این گروه مجاز نیست!
-
-⛔ کلمات حذف‌شده: <code>{words_list}</code>
-
-⚠️ لطفاً رعایت قوانین گروه کنید."""
+                # 2. Prepare warning with User Mention
+                user_mention = user.mention_html()
                 
-                warning = await message.reply_text(warning_msg, parse_mode="HTML")
+                warning_msg = f"""🚫 <b>اخطار به {user_mention}:</b>
+
+ارسال کلمات ممنوعه (حتی به صورت مخفی) در این گروه مجاز نیست!
+
+⛔ لطفاً رعایت قوانین گروه کنید."""
+                
+                # 3. Send as a NEW message (Not a reply)
+                warning = await context.bot.send_message(
+                    chat_id=message.chat_id,
+                    text=warning_msg,
+                    parse_mode="HTML"
+                )
                 
                 # Log the event
                 await log_spam_event(
@@ -216,12 +223,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     when=10,
                     name=f"delete_banned_word_warning_{warning.message_id}"
                 )
-                
-                logger.warning(
-                    f"⛔ کلمات ممنوعه توسط {user.id} (@{user.username}) حذف شد: {found_banned_words}. "
-                    f"گروه: {message.chat_id}"
-                )
                 return
                 
             except Exception as e:
-                logger.error(f"خطا در حذف پیام حاوی کلمات ممنوعه: {e}")
+                logger.error(f"خطا در حذف کلمات ممنوعه: {e}")
