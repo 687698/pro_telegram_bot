@@ -97,12 +97,18 @@ def main():
     """Main function - creates and runs the bot (blocking)"""
     logger.info("🤖 بات شروع شد...")
     
-    # Setup the application
-    application = asyncio.run(setup_application())
+    # Create a new event loop for this thread
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     
-    # Run polling - this handles initialization, startup, polling, and shutdown automatically
-    # This is a blocking call that runs indefinitely
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    try:
+        # Setup the application using the event loop
+        application = loop.run_until_complete(setup_application())
+        
+        # Run polling - this uses the existing event loop
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+    finally:
+        loop.close()
 
 
 if __name__ == "__main__":
