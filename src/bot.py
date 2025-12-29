@@ -10,8 +10,9 @@ from dotenv import load_dotenv
 from telegram import Update, BotCommand, BotCommandScopeAllChatAdministrators
 from telegram.ext import Application, ContextTypes, CommandHandler, MessageHandler, filters
 
-# Load environment variables
-load_dotenv()
+# Load environment variables (from .env if it exists locally)
+# On Railway, environment variables are set directly in the dashboard
+load_dotenv(override=False)
 
 # Configure logging
 logging.basicConfig(
