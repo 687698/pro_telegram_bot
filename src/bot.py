@@ -97,7 +97,8 @@ async def main():
     await application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
-if __name__ == "__main__":
+def run_bot():
+    """Synchronous entry point for running the bot"""
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
@@ -106,3 +107,7 @@ if __name__ == "__main__":
         logger.error(f"❌ خطای غیرمنتظره: {e}")
         import traceback
         traceback.print_exc()
+
+
+if __name__ == "__main__":
+    run_bot()

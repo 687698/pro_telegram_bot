@@ -3,12 +3,11 @@ Entry point for Railway deployment
 Starts the Telegram bot
 """
 
-import asyncio
-from src.bot import main
+from src.bot import run_bot
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        run_bot()
     except KeyboardInterrupt:
         print("Bot stopped by user")
     except Exception as e:
