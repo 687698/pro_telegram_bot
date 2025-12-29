@@ -97,12 +97,8 @@ async def main():
     
     logger.info("✅ Bot initialized and polling...")
     
-    try:
-        await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-    finally:
-        await application.updater.stop()
-        await application.stop()
-        await application.shutdown()
+    # Run the bot with polling - this blocks indefinitely
+    await application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
