@@ -25,6 +25,7 @@ class DatabaseManager:
             raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in .env file")
         
         self.client: Client = create_client(self.url, self.key)
+        self.initialize_default_banned_words() 
         self.banned_words_cache: List[str] = []
         self._cache_loaded = False
         

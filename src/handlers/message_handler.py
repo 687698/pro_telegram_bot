@@ -156,8 +156,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         found_banned_words = []
         
         for banned_word in banned_words:
-            # Check if banned word exists in message (word boundary checking)
-            if re.search(r'\b' + re.escape(banned_word) + r'\b', message_text_lower):
+            # Check if banned word exists (Simple check for Persian support)
+            if banned_word in message_text_lower:
                 found_banned_words.append(banned_word)
         
         if found_banned_words:
