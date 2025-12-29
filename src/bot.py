@@ -60,7 +60,12 @@ async def main():
     token = os.getenv("TELEGRAM_TOKEN")
     
     if not token:
-        raise ValueError("TELEGRAM_TOKEN must be set in .env file")
+        # Debug: show all environment variables
+        logger.error("Missing TELEGRAM_TOKEN. Available env variables:")
+        for key in ["TELEGRAM_TOKEN", "SUPABASE_URL", "SUPABASE_KEY", "BOT_ADMIN_ID", "LOG_LEVEL"]:
+            value = os.getenv(key)
+            logger.error(f"  {key}: {'SET' if value else 'MISSING'}")
+        raise ValueError("TELEGRAM_TOKEN must be set in environment variables")
     
     # Create application
     application = Application.builder().token(token).build()
