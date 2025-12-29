@@ -19,8 +19,15 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         # Get user status in the chat
         user_status = await update.message.chat.get_member(update.effective_user.id)
         
-        # Check if user is admin or creator
-        return user_status.status in [ChatMember.ADMINISTRATOR, ChatMember.CREATOR]
+        # Check if user is admin or owner (CREATOR is deprecated, use OWNER)
+        # We check for both to be safe
+        admin_statuses = [ChatMember.ADMINISTRATOR, ChatMember.OWNER]
+        
+        # Fallback for older versions that might still use CREATOR
+        if hasattr(ChatMember, 'CREATOR'):
+            admin_statuses.append(ChatMember.CREATOR)
+        
+        return user_status.status in admin_statuses
     except Exception as e:
         logger.error(f"خطا در بررسی دسترسی ادمین: {e}")
         return False
