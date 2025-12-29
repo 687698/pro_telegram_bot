@@ -1,0 +1,110 @@
+"""
+Main Telegram Bot Entry Point
+Persian Community Management Bot for large group administration
+"""
+
+import os
+import logging
+import asyncio
+from dotenv import load_dotenv
+from telegram import Update, BotCommand, BotCommandScopeAllChatAdministrators
+from telegram.ext import Application, ContextTypes, CommandHandler, MessageHandler, filters
+
+# Load environment variables
+load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=os.getenv("LOG_LEVEL", "INFO")
+)
+logger = logging.getLogger(__name__)
+
+
+async def setup_commands(app):
+    """Setup bot commands with proper scopes"""
+    # Commands for all users
+    general_commands = [
+        BotCommand("start", "🏠 شروع بات"),
+        BotCommand("help", "📖 راهنما"),
+        BotCommand("stats", "📊 آمار کاربر"),
+    ]
+    
+    # Admin-only commands
+    admin_commands = [
+        BotCommand("warn", "⚠️ اخطار کاربر"),
+        BotCommand("ban", "🚫 بن کردن کاربر"),
+        BotCommand("unmute", "🔊 باز کردن سکوت"),
+        BotCommand("addword", "📝 اضافه کردن کلمه ممنوع"),
+    ]
+    
+    try:
+        # Set general commands for all users
+        await app.bot.set_my_commands(general_commands)
+        
+        # Set admin commands only for administrators
+        await app.bot.set_my_commands(
+            admin_commands,
+            scope=BotCommandScopeAllChatAdministrators()
+        )
+        
+        logger.info("✅ Bot commands configured successfully")
+    except Exception as e:
+        logger.error(f"Error setting commands: {e}")
+
+
+async def main():
+    """Main async function to run the bot"""
+    # Get token from environment
+    token = os.getenv("TELEGRAM_TOKEN")
+    
+    if not token:
+        raise ValueError("TELEGRAM_TOKEN must be set in .env file")
+    
+    # Create application
+    application = Application.builder().token(token).build()
+    
+    # Import handlers
+    from src.handlers.commands import start, help_command, stats
+    from src.handlers.moderation import warn, ban, unmute, addword
+    from src.handlers.message_handler import handle_message
+    
+    # Add handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("stats", stats))
+    application.add_handler(CommandHandler("warn", warn))
+    application.add_handler(CommandHandler("ban", ban))
+    application.add_handler(CommandHandler("unmute", unmute))
+    application.add_handler(CommandHandler("addword", addword))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    logger.info("✅ Handlers setup completed")
+    
+    # Setup commands
+    await setup_commands(application)
+    
+    # Start the bot
+    logger.info("🤖 بات شروع شد...")
+    await application.initialize()
+    await application.start()
+    
+    logger.info("✅ Bot initialized and polling...")
+    
+    try:
+        await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+    finally:
+        await application.updater.stop()
+        await application.stop()
+        await application.shutdown()
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("❌ Bot stopped by user")
+    except Exception as e:
+        logger.error(f"❌ خطای غیرمنتظره: {e}")
+        import traceback
+        traceback.print_exc()

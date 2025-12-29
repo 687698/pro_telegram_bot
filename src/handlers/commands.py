@@ -1,0 +1,93 @@
+"""
+Command handlers for the Telegram bot (Persian/Farsi)
+"""
+
+import logging
+from telegram import Update
+from telegram.ext import ContextTypes
+from src.database import db
+
+logger = logging.getLogger(__name__)
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /start command - Welcome message in Persian"""
+    if not update.message or not update.effective_user:
+        return
+    
+    user = update.effective_user
+    
+    # Initialize user in database
+    db.initialize_user(user.id, user.username or "Unknown")
+    
+    welcome_message = f"""👋 سلام {user.first_name}!
+
+خوش آمدید به گروه ما! 🎉
+
+این بات برای مدیریت و نظارت بر گروه طراحی شده است.
+من می‌توانم:
+✅ کاربران را اخطار دهم
+✅ کاربران مزاحم را مسدود کنم
+✅ کلمات ممنوع را فیلتر کنم
+✅ آمار و اطلاعات را نمایش دهم
+
+برای دیدن دستورات بیشتر، /help را بزنید."""
+    
+    await update.message.reply_text(welcome_message)
+    logger.info(f"کاربر {user.id} شروع کرد")
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /help command - Show help in Persian"""
+    if not update.message:
+        return
+    
+    help_text = """📖 راهنما - دستورات دستیار
+
+👥 دستورات عمومی:
+/start - شروع
+/stats - مشاهده اخطارات شما
+
+⚙️ دستورات مدیران (فقط برای ادمین‌ها):
+/warn - اخطار دادن به کاربر
+/ban - مسدود کردن کاربر
+/unmute - باز کردن سکوت
+/addword [کلمه] - اضافه کردن کلمه ممنوع
+
+مثال:
+/addword تبلیغ"""
+    
+    await update.message.reply_text(help_text)
+    logger.info(f"راهنما برای {update.effective_user.id} نمایش داده شد")
+
+
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /stats command - Show user statistics in Persian"""
+    if not update.message or not update.effective_user:
+        return
+    
+    user = update.effective_user
+    user_stats = db.get_user_stats(user.id)
+    
+    if not user_stats:
+        response = "⚠️ اطلاعات شما در سیستم ثبت نشده است."
+    else:
+        warn_count = user_stats.get("warn_count", 0)
+        
+        if warn_count == 0:
+            status = "✅ شما هیچ اخطاری ندارید!"
+        elif warn_count < 3:
+            remaining = 3 - warn_count
+            status = f"⚠️ شما {warn_count} اخطار دارید. ({remaining} اخطار باقی‌مانده تا مسدود شدن)"
+        else:
+            status = "🚫 شما مسدود شده‌اید!"
+        
+        response = f"""📊 آمار شما:
+        
+👤 نام: {user.first_name}
+🆔 شناسه: {user.id}
+⚠️ تعداد اخطار: {warn_count}
+{status}"""
+    
+    await update.message.reply_text(response)
+    logger.info(f"آمار برای {user.id} نمایش داده شد")
