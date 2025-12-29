@@ -54,8 +54,8 @@ async def setup_commands(app):
         logger.error(f"Error setting commands: {e}")
 
 
-async def main():
-    """Main async function to run the bot"""
+async def setup_application():
+    """Setup and return the application (non-blocking setup)"""
     # Get token from environment
     token = os.getenv("TELEGRAM_TOKEN")
     
@@ -90,16 +90,24 @@ async def main():
     # Setup commands
     await setup_commands(application)
     
-    # Start the bot
+    return application
+
+
+def main():
+    """Main function - creates and runs the bot (blocking)"""
     logger.info("🤖 بات شروع شد...")
     
+    # Setup the application
+    application = asyncio.run(setup_application())
+    
     # Run polling - this handles initialization, startup, polling, and shutdown automatically
-    await application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # This is a blocking call that runs indefinitely
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        main()  # This is a blocking call
     except KeyboardInterrupt:
         logger.info("❌ Bot stopped by user")
     except Exception as e:

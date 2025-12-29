@@ -4,7 +4,6 @@ Starts the Telegram bot
 """
 
 import logging
-import asyncio
 import os
 from dotenv import load_dotenv
 
@@ -23,7 +22,7 @@ logger.info("🚀 Starting bot from main.py...")
 try:
     from src.bot import main
     logger.info("✅ Successfully imported main from src.bot")
-    asyncio.run(main())
+    main()  # This is a blocking call
 except ImportError as e:
     logger.error(f"❌ Import error: {e}", exc_info=True)
     raise
