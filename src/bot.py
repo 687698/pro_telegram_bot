@@ -92,12 +92,8 @@ async def main():
     
     # Start the bot
     logger.info("🤖 بات شروع شد...")
-    await application.initialize()
-    await application.start()
     
-    logger.info("✅ Bot initialized and polling...")
-    
-    # Run the bot with polling - this blocks indefinitely
+    # Run polling - this handles initialization, startup, polling, and shutdown automatically
     await application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
