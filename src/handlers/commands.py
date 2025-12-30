@@ -3,12 +3,19 @@ Command handlers for the Telegram bot (Persian/Farsi)
 """
 
 import logging
+import asyncio
 from telegram import Update
 from telegram.ext import ContextTypes
 from src.database import db
 
 logger = logging.getLogger(__name__)
 
+async def delete_later(bot, chat_id, message_id, delay):
+    try:
+        await asyncio.sleep(delay)
+        await bot.delete_message(chat_id=chat_id, message_id=message_id)
+    except Exception:
+        pass
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command - Welcome message in Persian"""
@@ -36,7 +43,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 برای دیدن دستورات بیشتر، /help را بزنید."""
         
-        await update.message.reply_text(welcome_message)
+       # Send message
+        response = await update.message.reply_text(welcome_message)
+        
+        # Delete after 20 seconds (Give them more time to read start message)
+        if update.message.chat.type != 'private': # Only auto-delete in groups
+            asyncio.create_task(delete_later(context.bot, update.message.chat_id, response.message_id, 20))
         logger.info(f"✅ /start response sent to user {user.id}")
     except Exception as e:
         logger.error(f"❌ Error in /start command: {e}", exc_info=True)
@@ -65,7 +77,14 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 مثال:
 /addword تبلیغ"""
         
-        await update.message.reply_text(help_text)
+       # Send message
+        response = await update.message.reply_text(help_text)
+        
+        # Delete after 10 seconds
+        if update.message.chat.type != 'private':
+            asyncio.create_task(delete_later(context.bot, update.message.chat_id, response.message_id, 10))
+            # Optional: Delete the user's command too
+            asyncio.create_task(delete_later(context.bot, update.message.chat_id, update.message.message_id, 10))
         logger.info(f"✅ /help response sent to user {update.effective_user.id}")
     except Exception as e:
         logger.error(f"❌ Error in /help command: {e}", exc_info=True)
@@ -102,7 +121,14 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⚠️ تعداد اخطار: {warn_count}
 {status}"""
         
-        await update.message.reply_text(response)
+        # Send message
+        msg = await update.message.reply_text(response)
+        
+        # Delete after 10 seconds
+        if update.message.chat.type != 'private':
+            asyncio.create_task(delete_later(context.bot, update.message.chat_id, msg.message_id, 10))
+            # Optional: Delete the user's command too
+            asyncio.create_task(delete_later(context.bot, update.message.chat_id, update.message.message_id, 10))
         logger.info(f"✅ /stats response sent to user {user.id}")
     except Exception as e:
         logger.error(f"❌ Error in /stats command: {e}", exc_info=True)
