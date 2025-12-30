@@ -5,19 +5,20 @@ Anti-spam filter with URL detection and banned words checking
 
 import logging
 import re
+import asyncio 
 from telegram import Update, ChatMember
 from telegram.ext import ContextTypes
 from src.database import db
 
 logger = logging.getLogger(__name__)
 
-async def delayed_delete(context: ContextTypes.DEFAULT_TYPE):
-    """Helper: Deletes a message when the timer finishes"""
+async def delete_later(bot, chat_id, message_id, delay):
+    """Wait for 'delay' seconds, then delete the message"""
     try:
-        chat_id, message_id = context.job.data
-        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        await asyncio.sleep(delay)
+        await bot.delete_message(chat_id=chat_id, message_id=message_id)
     except Exception:
-        pass # Message might already be deleted
+        pass
 
 
 # Regex pattern for detecting URLs
@@ -146,13 +147,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="HTML"
             )
             
-          # 3. Delete Warning after 5 SECONDS (Flash)
-            context.job_queue.run_once(
-                delayed_delete,  # <--- Use the new function
-                when=5,
-                data=(message.chat_id, warning.message_id), # <--- Pass IDs here
-                name=f"delete_link_{warning.message_id}"
-            )
+          # 3. Delete Warning after 5 SECONDS (Asyncio Method)
+            asyncio.create_task(delete_later(context.bot, message.chat_id, warning.message_id, 5))
             
             await log_spam_event(user.id, user.username or "Unknown", "link", message_text[:100], message.chat_id)
             return
@@ -196,13 +192,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="HTML"
                 )
                 
-                # 3. Delete Warning after 5 SECONDS (Flash)
-                context.job_queue.run_once(
-                    delayed_delete,  # <--- Use the new function
-                    when=5,
-                    data=(message.chat_id, warning.message_id), # <--- Pass IDs here
-                    name=f"delete_word_{warning.message_id}"
-                )
+                # 3. Delete Warning after 5 SECONDS (Asyncio Method)
+                asyncio.create_task(delete_later(context.bot, message.chat_id, warning.message_id, 5))
                 
                 await log_spam_event(user.id, user.username or "Unknown", "banned_word", message_text[:100], message.chat_id)
                 return

@@ -3,17 +3,18 @@ Moderation handlers for group administration (Persian/Farsi)
 """
 
 import logging
+import asyncio
 from telegram import Update, ChatMember, ChatPermissions
 from telegram.ext import ContextTypes
 from src.database import db
 
 logger = logging.getLogger(__name__)
 
-async def delayed_delete(context: ContextTypes.DEFAULT_TYPE):
-    """Helper: Deletes a message when the timer finishes"""
+async def delete_later(bot, chat_id, message_id, delay):
+    """Wait for 'delay' seconds, then delete the message"""
     try:
-        chat_id, message_id = context.job.data
-        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        await asyncio.sleep(delay)
+        await bot.delete_message(chat_id=chat_id, message_id=message_id)
     except Exception:
         pass
 
@@ -106,13 +107,8 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
     
-    # 3. Delete Warning after 10 SECONDS
-    context.job_queue.run_once(
-        delayed_delete,
-        when=10, 
-        data=(update.message.chat_id, response.message_id), # <--- Pass IDs here
-        name=f"del_warn_{response.message_id}"
-    )
+    # Delete after 10 seconds
+    asyncio.create_task(delete_later(context.bot, update.message.chat_id, response.message_id, 10))
 
 
 async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -145,14 +141,8 @@ async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 2. Send Confirmation
     response = await context.bot.send_message(chat_id=update.message.chat_id, text=ban_msg, parse_mode="HTML")
     
-    # 3. Delete Warning after 10 SECONDS
-    context.job_queue.run_once(
-        delayed_delete,
-        when=10, 
-        data=(update.message.chat_id, response.message_id), # <--- Pass IDs here
-        name=f"del_warn_{response.message_id}"
-    )
-
+    # Delete after 5 seconds
+    asyncio.create_task(delete_later(context.bot, update.message.chat_id, response.message_id, 5))
 
 async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /unmute command - Unmute a user (Flash Mode)"""
@@ -191,13 +181,8 @@ async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 2. Send Confirmation
     response = await context.bot.send_message(chat_id=update.message.chat_id, text=msg_text, parse_mode="HTML")
     
-    # 3. Delete Warning after 10 SECONDS
-    context.job_queue.run_once(
-        delayed_delete,
-        when=10, 
-        data=(update.message.chat_id, response.message_id), # <--- Pass IDs here
-        name=f"del_warn_{response.message_id}"
-    )
+    # Delete after 5 seconds
+    asyncio.create_task(delete_later(context.bot, update.message.chat_id, response.message_id, 5))
 
 
 async def addword(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -221,13 +206,8 @@ async def addword(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=update.message.chat_id,
             text="⚠️ لطفاً کلمه را وارد کنید. (مثال: /addword تبلیغ)"
         )
-        # 3. Delete Confirmation after 2 SECONDS
-        context.job_queue.run_once(
-            delayed_delete, 
-            when=2, 
-            data=(update.message.chat_id, response.message_id), # <--- Pass IDs here
-            name=f"del_{response.message_id}"
-        )
+        # Delete after 2 seconds
+        asyncio.create_task(delete_later(context.bot, update.message.chat_id, response.message_id, 2))
     
     word = " ".join(context.args).strip()
     
