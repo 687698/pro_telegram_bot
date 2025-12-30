@@ -6,7 +6,7 @@ Anti-spam filter with URL detection and banned words checking
 import logging
 import re
 import asyncio 
-from telegram import Update, ChatMember
+from telegram import Update, ChatMember, ChatPermissions, MessageEntity
 from telegram.ext import ContextTypes
 from src.database import db
 
@@ -49,19 +49,32 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         return False
 
 
-def contains_url(text: str) -> bool:
+def has_link(message) -> bool:
     """
-    Check if text contains URLs
+    Check if message contains a link using Telegram Entities AND Keywords.
+    Checks both Message Text and Caption.
+    """
+    # 1. Check Telegram Entities (The most accurate way)
+    # This detects 'google.com', 'http://...', and text links [Click Here](url)
+    entities = message.entities or []
+    caption_entities = message.caption_entities or []
+    all_entities = list(entities) + list(caption_entities)
     
-    Args:
-        text: Text to check
-        
-    Returns:
-        True if URL found
-    """
-    # Check for common URL patterns
-    if re.search(URL_PATTERN, text):
-        return True
+    for entity in all_entities:
+        if entity.type in [MessageEntity.URL, MessageEntity.TEXT_LINK]:
+            return True
+
+    # 2. Fallback: Keyword check (for sneaky links Telegram might miss)
+    # We check the content of both text and caption
+    text_content = message.text or message.caption or ""
+    text_lower = text_content.lower()
+    
+    url_keywords = ['http://', 'https://', 'www.', '.com', '.ir', '.net', '.org', 't.me', 'bit.ly']
+    for keyword in url_keywords:
+        if keyword in text_lower:
+            return True
+            
+    return False
     
 def normalize_text(text: str) -> str:
     """
@@ -118,12 +131,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     message = update.message
     
-    # 🟢 FIX: Check both TEXT and CAPTION
-    # If message.text is None (photo), use message.caption. If both None, use empty string.
+    # 🟢 1. Combine Text and Caption
+    # We rename 'message_text' to 'message_content' effectively
     message_text = message.text or message.caption or ""
     
+    # If just a photo with no words, ignore
     if not message_text:
-        return # Just a photo with no words -> Ignore it
+        return
         
     message_text_lower = message_text.lower()
     
@@ -135,7 +149,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # ==================== URL/LINK DETECTION ====================
-    if contains_url(message_text):
+    # 🟢 2. Use the new has_link function (pass the WHOLE message)
+    if has_link(message):
         try:
             # 1. Delete Bad Message
             await message.delete()
@@ -167,48 +182,3 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Error handling link: {e}")
             return
-    
-    # ==================== BANNED WORDS DETECTION ====================
-    banned_words = db.get_banned_words()
-    
-    if banned_words:
-        found_banned_words = []
-        cleaned_message = normalize_text(message_text_lower)
-        
-        for banned_word in banned_words:
-            check_1 = banned_word in message_text_lower
-            check_2 = banned_word in cleaned_message
-            if check_1 or check_2:
-                found_banned_words.append(banned_word)
-        
-        if found_banned_words:
-            try:
-                # 1. Delete Bad Message
-                await message.delete()
-                
-                # 2. Add Warning to Database
-                new_warn_count = db.add_warn(user.id)
-                user_mention = user.mention_html()
-                
-                # 3. Check if Ban is needed
-                if new_warn_count >= 3:
-                    try:
-                        await context.bot.ban_chat_member(chat_id=message.chat_id, user_id=user.id)
-                        warning_msg = f"🚫 کاربر {user_mention} به دلیل کلمات نامناسب و دریافت ۳ اخطار **مسدود شد**!"
-                    except Exception:
-                        warning_msg = f"🚫 اخطار سوم برای {user_mention} (ربات دسترسی بن ندارد)."
-                else:
-                    warning_msg = f"🚫 {user_mention} عزیز، لطفاً از کلمات مناسب استفاده کنید.\n⚠️ اخطار: {new_warn_count}/3"
-                
-                # 4. Send Flash Message
-                warning = await context.bot.send_message(
-                    chat_id=message.chat_id,
-                    text=warning_msg,
-                    parse_mode="HTML"
-                )
-                asyncio.create_task(delete_later(context.bot, message.chat_id, warning.message_id, 5))
-                
-                await log_spam_event(user.id, user.username or "Unknown", "banned_word", message_text[:100], message.chat_id)
-                return
-            except Exception as e:
-                logger.error(f"Error handling bad word: {e}")
