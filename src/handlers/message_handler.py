@@ -137,28 +137,40 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # 1. Delete Bad Message
             await message.delete()
             
-            # 2. Send Warning (Tagging User)
+            # 2. Add Warning to Database (Crucial Step!)
+            new_warn_count = db.add_warn(user.id)
             user_mention = user.mention_html()
-            warning_msg = f"🚫 {user_mention} عزیز، ارسال لینک ممنوع است."
             
+            # 3. Check if Ban is needed (3 strikes)
+            if new_warn_count >= 3:
+                try:
+                    await context.bot.ban_chat_member(chat_id=message.chat_id, user_id=user.id)
+                    warning_msg = f"🚫 کاربر {user_mention} به دلیل ارسال لینک و دریافت ۳ اخطار **مسدود شد**!"
+                except Exception:
+                    warning_msg = f"🚫 اخطار سوم برای {user_mention} (ربات دسترسی بن ندارد)."
+            else:
+                warning_msg = f"🚫 {user_mention} عزیز، ارسال لینک ممنوع است.\n⚠️ اخطار: {new_warn_count}/3"
+            
+            # 4. Send Flash Message
             warning = await context.bot.send_message(
                 chat_id=message.chat_id,
                 text=warning_msg,
                 parse_mode="HTML"
             )
-            
-          # 3. Delete Warning after 5 SECONDS (Asyncio Method)
             asyncio.create_task(delete_later(context.bot, message.chat_id, warning.message_id, 5))
             
             await log_spam_event(user.id, user.username or "Unknown", "link", message_text[:100], message.chat_id)
             return
         except Exception as e:
-            logger.error(f"Error: {e}")
+            logger.error(f"Error handling link: {e}")
             return
     
     # ==================== BANNED WORDS DETECTION ====================
     
     # Get banned words from cache
+    banned_words = db.get_banned_words()
+    
+    # ==================== BANNED WORDS DETECTION ====================
     banned_words = db.get_banned_words()
     
     if banned_words:
@@ -177,25 +189,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if check_1 or check_2:
                 found_banned_words.append(banned_word)
         
+        # 👇 THIS IS THE PART YOU WANTED TO UPDATE 👇
         if found_banned_words:
             try:
                 # 1. Delete Bad Message
                 await message.delete()
                 
-                # 2. Send Warning
+                # 2. Add Warning to Database
+                new_warn_count = db.add_warn(user.id)
                 user_mention = user.mention_html()
-                warning_msg = f"🚫 {user_mention} عزیز، لطفاً از کلمات مناسب استفاده کنید."
                 
+                # 3. Check if Ban is needed
+                if new_warn_count >= 3:
+                    try:
+                        await context.bot.ban_chat_member(chat_id=message.chat_id, user_id=user.id)
+                        warning_msg = f"🚫 کاربر {user_mention} به دلیل کلمات نامناسب و دریافت ۳ اخطار **مسدود شد**!"
+                    except Exception:
+                        warning_msg = f"🚫 اخطار سوم برای {user_mention} (ربات دسترسی بن ندارد)."
+                else:
+                    warning_msg = f"🚫 {user_mention} عزیز، لطفاً از کلمات مناسب استفاده کنید.\n⚠️ اخطار: {new_warn_count}/3"
+                
+                # 4. Send Flash Message
                 warning = await context.bot.send_message(
                     chat_id=message.chat_id,
                     text=warning_msg,
                     parse_mode="HTML"
                 )
-                
-                # 3. Delete Warning after 5 SECONDS (Asyncio Method)
                 asyncio.create_task(delete_later(context.bot, message.chat_id, warning.message_id, 5))
                 
                 await log_spam_event(user.id, user.username or "Unknown", "banned_word", message_text[:100], message.chat_id)
                 return
             except Exception as e:
-                logger.error(f"Error: {e}")
+                logger.error(f"Error handling bad word: {e}")
