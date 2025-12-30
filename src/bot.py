@@ -70,7 +70,17 @@ async def setup_application():
     
     # Create application
     # 🟢 FIX: Increase timeout to 60 seconds to fix Railway crashing
-    request = HTTPXRequest(connect_timeout=60, read_timeout=60)
+    # 🟢 FIX: Optimized timings for faster response
+    # connect_timeout=30: Wait 30s to establish connection (prevents startup crashes)
+    # read_timeout=10: If no data for 10s, refresh the connection (fixes the lag!)
+    request = HTTPXRequest(
+        connect_timeout=30.0,
+        read_timeout=10.0,
+        write_timeout=10.0,
+        http_version="HTTP/1.1", # Keep this to bypass blocks
+        keep_alive_timeout=10.0
+    )
+    
     application = Application.builder().token(token).request(request).build()
     
     # Import handlers
