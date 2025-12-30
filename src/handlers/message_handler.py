@@ -11,6 +11,14 @@ from src.database import db
 
 logger = logging.getLogger(__name__)
 
+async def delayed_delete(context: ContextTypes.DEFAULT_TYPE):
+    """Helper: Deletes a message when the timer finishes"""
+    try:
+        chat_id, message_id = context.job.data
+        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+    except Exception:
+        pass # Message might already be deleted
+
 
 # Regex pattern for detecting URLs
 URL_PATTERN = re.compile(
@@ -138,10 +146,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="HTML"
             )
             
-            # 3. Delete Warning after 5 SECONDS
+          # 3. Delete Warning after 5 SECONDS (Flash)
             context.job_queue.run_once(
-                lambda ctx: ctx.bot.delete_message(message.chat_id, warning.message_id),
-                when=5, # <--- Short time
+                delayed_delete,  # <--- Use the new function
+                when=5,
+                data=(message.chat_id, warning.message_id), # <--- Pass IDs here
                 name=f"delete_link_{warning.message_id}"
             )
             
@@ -187,10 +196,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="HTML"
                 )
                 
-                # 3. Delete Warning after 5 SECONDS
+                # 3. Delete Warning after 5 SECONDS (Flash)
                 context.job_queue.run_once(
-                    lambda ctx: ctx.bot.delete_message(message.chat_id, warning.message_id),
-                    when=5, # <--- Short time
+                    delayed_delete,  # <--- Use the new function
+                    when=5,
+                    data=(message.chat_id, warning.message_id), # <--- Pass IDs here
                     name=f"delete_word_{warning.message_id}"
                 )
                 
