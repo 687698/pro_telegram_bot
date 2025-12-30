@@ -8,6 +8,7 @@ import logging
 import asyncio
 from dotenv import load_dotenv
 from telegram import Update, BotCommand, BotCommandScopeAllChatAdministrators
+from telegram.request import HTTPXRequest
 from telegram.ext import Application, ContextTypes, CommandHandler, MessageHandler, filters
 
 # Load environment variables (from .env if it exists locally)
@@ -68,7 +69,9 @@ async def setup_application():
         raise ValueError("TELEGRAM_TOKEN must be set in environment variables")
     
     # Create application
-    application = Application.builder().token(token).build()
+    # 🟢 FIX: Increase timeout to 60 seconds to fix Railway crashing
+    request = HTTPXRequest(connect_timeout=60, read_timeout=60)
+    application = Application.builder().token(token).request(request).build()
     
     # Import handlers
     from src.handlers.commands import start, help_command, stats
