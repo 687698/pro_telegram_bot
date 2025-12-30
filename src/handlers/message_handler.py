@@ -111,37 +111,40 @@ async def log_spam_event(user_id: int, username: str, spam_type: str, content: s
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Handle incoming messages - Check for banned words and URLs
-    Professional anti-spam filter for Persian groups
-    """
-    if not update.message or not update.message.text or not update.effective_user:
+    """Handle incoming messages"""
+    if not update.message or not update.effective_user:
         return
     
     user = update.effective_user
     message = update.message
-    message_text = message.text
+    
+    # 🟢 FIX: Check both TEXT and CAPTION
+    # If message.text is None (photo), use message.caption. If both None, use empty string.
+    message_text = message.text or message.caption or ""
+    
+    if not message_text:
+        return # Just a photo with no words -> Ignore it
+        
     message_text_lower = message_text.lower()
     
-    # Initialize user in database if new
+    # Initialize user
     db.initialize_user(user.id, user.username or "Unknown")
     
-    # Skip checking for admins
+    # Skip admins
     if await is_admin(update, context):
         return
     
     # ==================== URL/LINK DETECTION ====================
-    
     if contains_url(message_text):
         try:
             # 1. Delete Bad Message
             await message.delete()
             
-            # 2. Add Warning to Database (Crucial Step!)
+            # 2. Add Warning to Database
             new_warn_count = db.add_warn(user.id)
             user_mention = user.mention_html()
             
-            # 3. Check if Ban is needed (3 strikes)
+            # 3. Check if Ban is needed
             if new_warn_count >= 3:
                 try:
                     await context.bot.ban_chat_member(chat_id=message.chat_id, user_id=user.id)
@@ -166,30 +169,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
     
     # ==================== BANNED WORDS DETECTION ====================
-    
-    # Get banned words from cache
-    banned_words = db.get_banned_words()
-    
-    # ==================== BANNED WORDS DETECTION ====================
     banned_words = db.get_banned_words()
     
     if banned_words:
         found_banned_words = []
-        
-        # Create the "Smart Cleaned" version of the message
         cleaned_message = normalize_text(message_text_lower)
         
         for banned_word in banned_words:
-            # Check 1: Does it exist normally?
             check_1 = banned_word in message_text_lower
-            
-            # Check 2: Does it exist in the cleaned version? (Hidden words)
             check_2 = banned_word in cleaned_message
-            
             if check_1 or check_2:
                 found_banned_words.append(banned_word)
         
-        # 👇 THIS IS THE PART YOU WANTED TO UPDATE 👇
         if found_banned_words:
             try:
                 # 1. Delete Bad Message
