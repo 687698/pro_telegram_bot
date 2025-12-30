@@ -228,9 +228,5 @@ async def addword(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text=text
     )
     
-    # 3. Delete Confirmation after 2 SECONDS (Flash)
-    context.job_queue.run_once(
-        lambda ctx: ctx.bot.delete_message(update.message.chat_id, response.message_id),
-        when=2, # <--- Disappears very fast
-        name=f"del_{response.message_id}"
-    )
+    # Flash Delete (2 seconds)
+    asyncio.create_task(delete_later(context.bot, update.message.chat_id, response.message_id, 2))
