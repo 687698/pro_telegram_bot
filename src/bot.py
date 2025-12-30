@@ -75,13 +75,9 @@ async def setup_application():
     # read_timeout=10: If no data for 10s, refresh the connection (fixes the lag!)
 # 🟢 FIX: Increase Pool Size to handle spam bursts
     # 🟢 FIX: Increased Pool Size, Removed the invalid parameter
-    request = HTTPXRequest(
-        connection_pool_size=50,  # <--- This fixes the "Pool timeout" error
-        connect_timeout=60.0,
-        read_timeout=60.0,
-        write_timeout=60.0,
-        http_version="HTTP/1.1"
-    )
+    
+    request = HTTPXRequest(connect_timeout=60, read_timeout=60)
+    application = Application.builder().token(token).request(request).build()
     
     application = Application.builder().token(token).request(request).build()
 
