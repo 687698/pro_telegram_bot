@@ -38,8 +38,7 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
 
 def has_link(message) -> bool:
     """
-    Check if message contains a link using Telegram Entities AND Keywords.
-    Checks both Message Text and Caption.
+    Check if message contains a link using Entities, Keywords, and De-obfuscation.
     """
     # 1. Check Telegram Entities (The most accurate way)
     entities = message.entities or []
@@ -50,14 +49,55 @@ def has_link(message) -> bool:
         if entity.type in [MessageEntity.URL, MessageEntity.TEXT_LINK]:
             return True
 
-    # 2. Fallback: Keyword check
+    # 2. Get content
     text_content = message.text or message.caption or ""
     text_lower = text_content.lower()
-    
+
+    # 3. Check Standard Keywords (Fast check)
     url_keywords = ['http://', 'https://', 'www.', '.com', '.ir', '.net', '.org', 't.me', 'bit.ly']
     for keyword in url_keywords:
         if keyword in text_lower:
             return True
+
+    # 4. ADVANCED: De-obfuscation Check (Skeleton Check)
+    # This catches "w w w . g o o g l e . c o m"
+    
+    # Remove EVERYTHING except letters and numbers (Strip spaces, dots, commas, symbols)
+    skeleton = re.sub(r'[\W_]+', '', text_lower)
+    
+    # List of dangerous starts
+    prefixes = ['http', 'https', 'www', 'tme'] # tme is for t.me
+    
+    # List of dangerous endings (TLDs)
+    domains = ['com', 'ir', 'net', 'org', 'xyz', 'tk', 'info']
+    
+    # Logic: If it has a Prefix AND a Domain, it's likely a hidden link
+    # Example: "wwwgooglecom" -> Has 'www' AND 'com' -> Block
+    # We don't check JUST 'com' because words like "communication" would be blocked.
+    
+    found_prefix = False
+    for p in prefixes:
+        if p in skeleton:
+            found_prefix = True
+            break
+            
+    found_domain = False
+    for d in domains:
+        if d in skeleton:
+            found_domain = True
+            break
+            
+    # Special case: 'http' is always a link, even without a domain
+    if 'http' in skeleton:
+        return True
+        
+    # Special case: 'tme' (t.me) is always a link
+    if 'tme' in skeleton:
+        return True
+
+    # If it has 'www' AND a domain ('com', 'ir'...), block it
+    if found_prefix and found_domain:
+        return True
             
     return False
 
