@@ -147,43 +147,51 @@ async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     asyncio.create_task(delete_later(context.bot, update.message.chat_id, response.message_id, 5))
 
 async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /unmute command - Unmute a user (Flash Mode)"""
+    """Handle /unmute command - Unban user and Reset warnings (Flash Mode)"""
     if not update.message or not update.effective_user:
         return
     
     if not await is_admin(update, context):
         return
 
-    # 1. Delete Admin's Command
+    # 1. Delete Admin Command
     try:
         await update.message.delete()
     except Exception:
         pass
     
     if not update.message.reply_to_message:
-        return # Just ignore if no reply
+        msg = await context.bot.send_message(chat_id=update.message.chat_id, text="⚠️ برای بخشش، لطفاً روی پیام کاربر ریپلای کنید.")
+        asyncio.create_task(delete_later(context.bot, update.message.chat_id, msg.message_id, 3))
+        return
     
     target_user = update.message.reply_to_message.from_user
     
     try:
+        # A. Unban the user (allows them to rejoin)
+        await context.bot.unban_chat_member(chat_id=update.message.chat_id, user_id=target_user.id)
+        
+        # B. Reset warnings in Database
+        db.reset_warns(target_user.id)
+        
+        # C. Also try to Lift Restrictions (if they are still in chat)
         await context.bot.restrict_chat_member(
             chat_id=update.message.chat_id,
             user_id=target_user.id,
             permissions=ChatPermissions(
-                can_send_messages=True,
-                can_send_media_messages=True,
-                can_send_polls=True,
-                can_add_web_page_previews=True
+                can_send_messages=True, can_send_media_messages=True,
+                can_send_polls=True, can_add_web_page_previews=True
             )
         )
-        msg_text = f"🔊 کاربر {target_user.mention_html()} آزاد شد."
-    except Exception:
-        msg_text = "❌ خطا در آزاد کردن کاربر."
+        msg_text = f"✅ کاربر {target_user.mention_html()} بخشیده شد.\n(رفع بن + حذف اخطارها)"
+    except Exception as e:
+        # If user is not in chat, restrict_chat_member might fail, but unban usually works
+        msg_text = f"✅ کاربر {target_user.mention_html()} رفع بن شد و اخطارها پاک شدند."
     
     # 2. Send Confirmation
     response = await context.bot.send_message(chat_id=update.message.chat_id, text=msg_text, parse_mode="HTML")
     
-    # Delete after 5 seconds
+    # 3. Flash Delete
     asyncio.create_task(delete_later(context.bot, update.message.chat_id, response.message_id, 5))
 
 

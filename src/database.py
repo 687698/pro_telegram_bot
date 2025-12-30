@@ -304,6 +304,15 @@ class DatabaseManager:
             logger.error(f"Error removing banned word '{word}': {e}")
             return False
 
+    def reset_warns(self, user_id: int) -> bool:
+        """Reset user warnings to 0"""
+        try:
+            self.client.table("users").update({"warn_count": 0}).eq("user_id", user_id).execute()
+            logger.info(f"Reset warnings for user {user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error resetting warns: {e}")
+            return False
 
 # Initialize database manager instance
 db = DatabaseManager()
