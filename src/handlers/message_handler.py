@@ -173,8 +173,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.initialize_user(user.id, user.username or "Unknown")
     
     # 3. Skip Admins (Admins can do whatever they want)
-    if await is_admin(update, context):
-        return
+   # ==================== CHECK 0: MEDIA APPROVAL SYSTEM ====================
+    # If it is a Photo or Video, Delete and Forward to Admin
+    if message.photo or message.video:
+        try:
+            # 1. Delete from group immediately
+            await message.delete()
+
+            # 2. Forward to Owner for review
+            # 🔴 REPLACE THIS WITH YOUR REAL ID (Get it from @userinfobot)
+            OWNER_ID = 2117254740
+            
+            try:
+                # Forward the media to your DM
+                await message.forward(chat_id=OWNER_ID)
+                
+                # Send you a context message
+                await context.bot.send_message(
+                    chat_id=OWNER_ID,
+                    text=f"📩 <b>مدیا برای تایید</b>\nکاربر: {user.mention_html()}\nگروه: {message.chat.title}\n\n✅ اگر تایید می‌کنید، آن را به گروه فوروارد کنید.",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                # If bot can't DM you (you didn't start it), just delete silently
+                pass
+
+            # 3. Tell the User (Flash Message)
+            msg_text = f"🔒 {user.mention_html()} عزیز، ارسال فایل نیازمند تایید مدیر است."
+            warning = await context.bot.send_message(chat_id=message.chat_id, text=msg_text, parse_mode="HTML")
+            
+            # Delete warning after 5 seconds
+            asyncio.create_task(delete_later(context.bot, message.chat_id, warning.message_id, 5))
+            
+            return
+        except Exception as e:
+            logger.error(f"Error handling media approval: {e}")
+            return
     
     # ==================== CHECK 1: LINKS ====================
     if has_link(message):
