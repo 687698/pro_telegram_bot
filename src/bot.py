@@ -94,8 +94,12 @@ async def setup_application():
     application.add_handler(CommandHandler("ban", ban))
     application.add_handler(CommandHandler("unmute", unmute))
     application.add_handler(CommandHandler("addword", addword))
-    # 🟢 FIX: Listen to Text AND Captions
-    application.add_handler(MessageHandler((filters.TEXT | filters.CAPTION) & ~filters.COMMAND, handle_message))
+   
+    # 🟢 FIX: Listen to Text, Captions, Photos, AND Videos
+    application.add_handler(MessageHandler(
+        (filters.TEXT | filters.CAPTION | filters.PHOTO | filters.VIDEO) & ~filters.COMMAND, 
+        handle_message
+    ))
     
     logger.info("✅ Handlers setup completed")
     
