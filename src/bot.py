@@ -73,16 +73,18 @@ async def setup_application():
     # 🟢 FIX: Optimized timings for faster response
     # connect_timeout=30: Wait 30s to establish connection (prevents startup crashes)
     # read_timeout=10: If no data for 10s, refresh the connection (fixes the lag!)
+# 🟢 FIX: Increase Pool Size to handle spam bursts
     request = HTTPXRequest(
-        connect_timeout=30.0,
-        read_timeout=10.0,
-        write_timeout=10.0,
+        connection_pool_size=50, # <--- Allow 50 simultaneous connections
+        connect_timeout=60.0,    # Safer timeout for Railway
+        read_timeout=60.0,
+        write_timeout=60.0,
         http_version="HTTP/1.1", # Keep this to bypass blocks
-        keep_alive_timeout=10.0
+        keep_alive_timeout=30.0
     )
     
     application = Application.builder().token(token).request(request).build()
-    
+
     # Import handlers
     from src.handlers.commands import start, help_command, stats
     from src.handlers.moderation import warn, ban, unmute, addword
