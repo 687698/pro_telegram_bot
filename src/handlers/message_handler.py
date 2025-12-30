@@ -125,6 +125,7 @@ async def log_spam_event(user_id: int, username: str, spam_type: str, content: s
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle incoming messages"""
+    # Removed "not update.message.text" so we can check photos too!
     if not update.message or not update.effective_user:
         return
     
