@@ -18,6 +18,8 @@ async def delete_later(bot, chat_id, message_id, delay):
     except Exception:
         pass
 
+# 🔴 2. SET YOUR OWNER ID HERE
+OWNER_ID = 2117254740
 
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Check if the user is a group administrator"""
