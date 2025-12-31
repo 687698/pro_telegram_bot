@@ -38,7 +38,7 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
 
 def has_link(message) -> bool:
     """Check if message contains a link (Standard, Entities, Obfuscated)"""
-    # 1. Check Telegram Entities
+    # 1. Check Telegram Entities (The most accurate way)
     entities = message.entities or []
     caption_entities = message.caption_entities or []
     all_entities = list(entities) + list(caption_entities)
@@ -57,31 +57,38 @@ def has_link(message) -> bool:
         if keyword in text_lower:
             return True
 
-    # 4. ADVANCED: De-obfuscation Check (Skeleton Check)
+    # 4. ADVANCED: De-obfuscation Check (The "Skeleton" Check)
     # Remove EVERYTHING except letters (Strip spaces, dots, numbers, symbols)
     # Example: "g ..o..o..g..l..e ... c..o..m" -> "googlecom"
     skeleton = re.sub(r'[^a-z]+', '', text_lower)
     
     # List of dangerous domains/signatures
-    # We block if we find "domain" + "extension" pattern in the skeleton
-    
-    common_sites = ['google', 'youtube', 'instagram', 'telegram', 'whatsapp']
-    extensions = ['com', 'ir', 'net', 'org', 'xyz', 'tk', 'info']
-    
-    # Check A: Known Sites (e.g. googlecom, youtubecom)
+    common_sites = ['google', 'youtube', 'instagram', 'telegram', 'whatsapp', 'discord']
+    extensions = ['com', 'ir', 'net', 'org', 'xyz', 'tk', 'info', 'io', 'me']
+    prefixes = ['http', 'https', 'www', 'tme']
+
+    # Logic A: Check for Known Sites + Extension (e.g. "youtube" + "com")
+    # This catches "y o u t u b e . c o m" even without 'www'
     for site in common_sites:
         for ext in extensions:
             if site + ext in skeleton:
                 return True
-                
-    # Check B: Standard Prefixes (e.g. wwwgoogle, httpgoogle)
-    prefixes = ['http', 'https', 'www', 'tme']
+
+    # Logic B: Check for Standard Prefixes + Extension (e.g. "www" + "google")
+    # This catches "w w w . g o o g l e"
     for p in prefixes:
         if p in skeleton:
-            # If it has 'www' and ANY extension later
+            # If we find a prefix, check if there is ANY extension
             for ext in extensions:
                 if ext in skeleton:
                     return True
+            
+            # Special case: 'tme' is always a link
+            if p == 'tme':
+                return True
+            # Special case: 'http' is always a link
+            if p == 'http' or p == 'https':
+                return True
             
     return False
 
