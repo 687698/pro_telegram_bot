@@ -37,10 +37,8 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         return False
 
 def has_link(message) -> bool:
-    """
-    Check if message contains a link using Entities, Keywords, and De-obfuscation.
-    """
-    # 1. Check Telegram Entities (The most accurate way)
+    """Check if message contains a link (Standard, Entities, Obfuscated)"""
+    # 1. Check Telegram Entities
     entities = message.entities or []
     caption_entities = message.caption_entities or []
     all_entities = list(entities) + list(caption_entities)
@@ -53,51 +51,37 @@ def has_link(message) -> bool:
     text_content = message.text or message.caption or ""
     text_lower = text_content.lower()
 
-    # 3. Check Standard Keywords (Fast check)
+    # 3. Check Standard Keywords
     url_keywords = ['http://', 'https://', 'www.', '.com', '.ir', '.net', '.org', 't.me', 'bit.ly']
     for keyword in url_keywords:
         if keyword in text_lower:
             return True
 
     # 4. ADVANCED: De-obfuscation Check (Skeleton Check)
-    # This catches "w w w . g o o g l e . c o m"
+    # Remove EVERYTHING except letters (Strip spaces, dots, numbers, symbols)
+    # Example: "g ..o..o..g..l..e ... c..o..m" -> "googlecom"
+    skeleton = re.sub(r'[^a-z]+', '', text_lower)
     
-    # Remove EVERYTHING except letters and numbers (Strip spaces, dots, commas, symbols)
-    skeleton = re.sub(r'[\W_]+', '', text_lower)
+    # List of dangerous domains/signatures
+    # We block if we find "domain" + "extension" pattern in the skeleton
     
-    # List of dangerous starts
-    prefixes = ['http', 'https', 'www', 'tme'] # tme is for t.me
+    common_sites = ['google', 'youtube', 'instagram', 'telegram', 'whatsapp']
+    extensions = ['com', 'ir', 'net', 'org', 'xyz', 'tk', 'info']
     
-    # List of dangerous endings (TLDs)
-    domains = ['com', 'ir', 'net', 'org', 'xyz', 'tk', 'info']
-    
-    # Logic: If it has a Prefix AND a Domain, it's likely a hidden link
-    # Example: "wwwgooglecom" -> Has 'www' AND 'com' -> Block
-    # We don't check JUST 'com' because words like "communication" would be blocked.
-    
-    found_prefix = False
+    # Check A: Known Sites (e.g. googlecom, youtubecom)
+    for site in common_sites:
+        for ext in extensions:
+            if site + ext in skeleton:
+                return True
+                
+    # Check B: Standard Prefixes (e.g. wwwgoogle, httpgoogle)
+    prefixes = ['http', 'https', 'www', 'tme']
     for p in prefixes:
         if p in skeleton:
-            found_prefix = True
-            break
-            
-    found_domain = False
-    for d in domains:
-        if d in skeleton:
-            found_domain = True
-            break
-            
-    # Special case: 'http' is always a link, even without a domain
-    if 'http' in skeleton:
-        return True
-        
-    # Special case: 'tme' (t.me) is always a link
-    if 'tme' in skeleton:
-        return True
-
-    # If it has 'www' AND a domain ('com', 'ir'...), block it
-    if found_prefix and found_domain:
-        return True
+            # If it has 'www' and ANY extension later
+            for ext in extensions:
+                if ext in skeleton:
+                    return True
             
     return False
 
