@@ -38,9 +38,10 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
 
 def has_link(message) -> bool:
     """
-    Check if message contains a link using Entities, Keywords, and De-obfuscation.
+    Check if message contains a link (Standard, Entities, Obfuscated).
+    Catches: "w w w . g o o g l e . c o m" and "gg..oo..gl..e..com"
     """
-    # 1. Check Telegram Entities (The most accurate way)
+    # 1. Check Telegram Entities
     entities = message.entities or []
     caption_entities = message.caption_entities or []
     all_entities = list(entities) + list(caption_entities)
@@ -53,50 +54,48 @@ def has_link(message) -> bool:
     text_content = message.text or message.caption or ""
     text_lower = text_content.lower()
 
-    # 3. Check Standard Keywords (Fast check)
+    # 3. Check Standard Keywords
     url_keywords = ['http://', 'https://', 'www.', '.com', '.ir', '.net', '.org', 't.me', 'bit.ly']
     for keyword in url_keywords:
         if keyword in text_lower:
             return True
 
     # 4. ADVANCED: De-obfuscation Check (Skeleton Check)
-    # This catches "w w w . g o o g l e . c o m"
     
-    # Remove EVERYTHING except letters and numbers (Strip spaces, dots, commas, symbols)
-    skeleton = re.sub(r'[\W_]+', '', text_lower)
+    # Step A: Remove EVERYTHING except letters
+    # Example: "g ..o..o..g..l..e" -> "ggooogggleeecooomm"
+    skeleton = re.sub(r'[^a-z]+', '', text_lower)
     
-    # List of dangerous starts
-    prefixes = ['http', 'https', 'www', 'tme'] # tme is for t.me
+    # Step B: Remove Repeating Characters (Deduplication)
+    # Example: "ggooogggleeecooomm" -> "goglecom"
+    skeleton_clean = re.sub(r'(.)\1+', r'\1', skeleton)
     
-    # List of dangerous endings (TLDs)
-    domains = ['com', 'ir', 'net', 'org', 'xyz', 'tk', 'info']
-    
-    # Logic: If it has a Prefix AND a Domain, it's likely a hidden link
-    # Example: "wwwgooglecom" -> Has 'www' AND 'com' -> Block
-    # We don't check JUST 'com' because words like "communication" would be blocked.
-    
+    # Lists of dangerous patterns
+    common_sites = ['google', 'gogle', 'youtube', 'yotube', 'instagram', 'telegram', 'whatsapp', 'discord']
+    extensions = ['com', 'ir', 'net', 'org', 'xyz', 'tk', 'info', 'io', 'me']
+    prefixes = ['http', 'https', 'www', 'tme']
+
+    # Logic A: Check for Known Sites + Extension
+    for site in common_sites:
+        for ext in extensions:
+            if site + ext in skeleton_clean:
+                return True
+            if site + ext in skeleton:
+                return True
+
+    # Logic B: Check for Standard Prefixes + Extension
     found_prefix = False
     for p in prefixes:
-        if p in skeleton:
+        if p in skeleton_clean or p in skeleton:
             found_prefix = True
             break
             
-    found_domain = False
-    for d in domains:
-        if d in skeleton:
-            found_domain = True
-            break
-            
-    # Special case: 'http' is always a link, even without a domain
-    if 'http' in skeleton:
-        return True
-        
-    # Special case: 'tme' (t.me) is always a link
-    if 'tme' in skeleton:
-        return True
-
-    # If it has 'www' AND a domain ('com', 'ir'...), block it
-    if found_prefix and found_domain:
+    if found_prefix:
+        for ext in extensions:
+            if ext in skeleton_clean or ext in skeleton:
+                return True
+                
+    if 'tme' in skeleton_clean or 'http' in skeleton_clean:
         return True
             
     return False
