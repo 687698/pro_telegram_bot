@@ -100,6 +100,53 @@ def has_link(message) -> bool:
             
     return False
 
+async def check_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """
+    Checks for Photos/Videos.
+    If found: Deletes, Forwards to Admin, Warns User.
+    Returns: True if media was found (so we can stop processing), False otherwise.
+    """
+    message = update.message
+    user = update.effective_user
+    
+    # Check for Photo or Video
+    if message.photo or message.video:
+        try:
+            # 1. Delete from group immediately
+            await message.delete()
+
+            # 2. Forward to Owner (Media Approval)
+            # Your ID:
+            OWNER_ID = 2117254740
+            
+            try:
+                await message.forward(chat_id=OWNER_ID)
+                await context.bot.send_message(
+                    chat_id=OWNER_ID,
+                    text=f"📩 <b>مدیا برای تایید</b>\nکاربر: {user.mention_html()}\nگروه: {message.chat.title}\n\n✅ اگر تایید می‌کنید، آن را به گروه فوروارد کنید.",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass # Owner might have blocked bot
+
+            # 3. Warning to User (Flash Message)
+            msg_text = f"🔒 {user.mention_html()} عزیز، ارسال فایل نیازمند تایید مدیر است."
+            warning = await context.bot.send_message(
+                chat_id=message.chat_id, 
+                text=msg_text, 
+                parse_mode="HTML"
+            )
+
+            # 4. Delete warning after 5 seconds
+            asyncio.create_task(delete_later(context.bot, message.chat_id, warning.message_id, 5))
+
+            return True # Stop here, we handled the media
+        except Exception as e:
+            logger.error(f"Error handling media: {e}")
+            return True # Still stop processing
+            
+    return False # No media found, continue to text checks
+
 def normalize_text(text: str) -> str:
     """
     Creates a 'skeleton' version of the text to catch hidden bad words.
@@ -149,65 +196,37 @@ async def handle_punishment(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 # ==================== MAIN HANDLER ====================
 
+
+# 🟢 2. FIXED MAIN HANDLER
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle incoming messages (Text and Captions)"""
-    # 1. Basic checks (User exists?)
-    # Removed "not update.message.text" so we can check photos too!
     if not update.message or not update.effective_user:
         return
     
     user = update.effective_user
     message = update.message
     
-    # 2. Get Content (Text OR Caption)
+    # Initialize user in DB
+    db.initialize_user(user.id, user.username or "Unknown")
+    
+    # 🔴 RESTORED: Admin Check
+    # This prevents the bot from blocking YOU
+    if await is_admin(update, context):
+        return
+
+    # 🔴 NEW: Check Media FIRST (Before checking for text)
+    # This fixes the bug where photos without captions were allowed
+    if await check_media(update, context):
+        return
+
+    # Now get text content for links/bad words
     message_text = message.text or message.caption or ""
     
-    # If there is absolutely no content (e.g. just a sticker), ignore
+    # If no text (and wasn't a photo/video caught above), stop
     if not message_text:
         return
 
     message_text_lower = message_text.lower()
-    
-    # Initialize user in DB
-    db.initialize_user(user.id, user.username or "Unknown")
-    
-    # 3. Skip Admins (Admins can do whatever they want)
-   # ==================== CHECK 0: MEDIA APPROVAL SYSTEM ====================
-    # If it is a Photo or Video, Delete and Forward to Admin
-    if message.photo or message.video:
-        try:
-            # 1. Delete from group immediately
-            await message.delete()
-
-            # 2. Forward to Owner for review
-            # 🔴 REPLACE THIS WITH YOUR REAL ID (Get it from @userinfobot)
-            OWNER_ID = 2117254740
-            
-            try:
-                # Forward the media to your DM
-                await message.forward(chat_id=OWNER_ID)
-                
-                # Send you a context message
-                await context.bot.send_message(
-                    chat_id=OWNER_ID,
-                    text=f"📩 <b>مدیا برای تایید</b>\nکاربر: {user.mention_html()}\nگروه: {message.chat.title}\n\n✅ اگر تایید می‌کنید، آن را به گروه فوروارد کنید.",
-                    parse_mode="HTML"
-                )
-            except Exception:
-                # If bot can't DM you (you didn't start it), just delete silently
-                pass
-
-            # 3. Tell the User (Flash Message)
-            msg_text = f"🔒 {user.mention_html()} عزیز، ارسال فایل نیازمند تایید مدیر است."
-            warning = await context.bot.send_message(chat_id=message.chat_id, text=msg_text, parse_mode="HTML")
-            
-            # Delete warning after 5 seconds
-            asyncio.create_task(delete_later(context.bot, message.chat_id, warning.message_id, 5))
-            
-            return
-        except Exception as e:
-            logger.error(f"Error handling media approval: {e}")
-            return
     
     # ==================== CHECK 1: LINKS ====================
     if has_link(message):
@@ -225,16 +244,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if banned_words:
         found_banned_words = []
-        # Create normalized version to catch "h i d d e n" words
         cleaned_message = normalize_text(message_text_lower)
         
         for banned_word in banned_words:
-            # Check 1: Exact match in raw text
-            check_1 = banned_word in message_text_lower
-            # Check 2: Match in normalized (clean) text
-            check_2 = banned_word in cleaned_message
-            
-            if check_1 or check_2:
+            if banned_word in message_text_lower or banned_word in cleaned_message:
                 found_banned_words.append(banned_word)
         
         if found_banned_words:
