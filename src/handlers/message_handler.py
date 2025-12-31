@@ -199,7 +199,7 @@ async def handle_punishment(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 # 🟢 2. FIXED MAIN HANDLER
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle incoming messages (Text and Captions)"""
+    """Handle incoming messages (Text, Captions, Photos, Videos)"""
     if not update.message or not update.effective_user:
         return
     
@@ -209,17 +209,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Initialize user in DB
     db.initialize_user(user.id, user.username or "Unknown")
     
-    # 🔴 RESTORED: Admin Check
+    # 🔴 1. SKIP ADMINS (Restored!)
     # This prevents the bot from blocking YOU
     if await is_admin(update, context):
         return
 
-    # 🔴 NEW: Check Media FIRST (Before checking for text)
-    # This fixes the bug where photos without captions were allowed
+    # 🔴 2. CALL THE FUNCTION YOU ADDED AT THE TOP
+    # This checks for photos/videos. If found, it handles them and returns True.
     if await check_media(update, context):
         return
 
-    # Now get text content for links/bad words
+    # 🔴 3. GET TEXT CONTENT (For Link/Word Checks)
     message_text = message.text or message.caption or ""
     
     # If no text (and wasn't a photo/video caught above), stop
@@ -228,7 +228,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     message_text_lower = message_text.lower()
     
-    # ==================== CHECK 1: LINKS ====================
+    # 🔴 4. LINK DETECTION
     if has_link(message):
         try:
             await message.delete()
@@ -239,7 +239,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Error handling link: {e}")
             return
     
-    # ==================== CHECK 2: BANNED WORDS ====================
+    # 🔴 5. BANNED WORDS DETECTION
     banned_words = db.get_banned_words()
     
     if banned_words:
