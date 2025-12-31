@@ -6,7 +6,6 @@ Persian Community Management Bot for large group administration
 import os
 import logging
 import asyncio
-from src.handlers.message_handler import handle_text, check_media
 from dotenv import load_dotenv
 from telegram import Update, BotCommand, BotCommandScopeAllChatAdministrators
 from telegram.request import HTTPXRequest
@@ -85,7 +84,7 @@ async def setup_application():
     # Import handlers
     from src.handlers.commands import start, help_command, stats
     from src.handlers.moderation import warn, ban, unmute, addword
-    from src.handlers.message_handler import handle_message
+    from src.handlers.message_handler import handle_text, check_media
     
     # Add handlers
     application.add_handler(CommandHandler("start", start))
