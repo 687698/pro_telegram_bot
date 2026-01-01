@@ -147,7 +147,7 @@ async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     asyncio.create_task(delete_later(context.bot, update.message.chat_id, response.message_id, 5))
 
 async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /unmute command - Unban user and Reset warnings (Flash Mode)"""
+    """Handle /unmute command - Unban via Reply OR User ID"""
     if not update.message or not update.effective_user:
         return
     
@@ -160,38 +160,58 @@ async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass
     
-    if not update.message.reply_to_message:
-        msg = await context.bot.send_message(chat_id=update.message.chat_id, text="⚠️ برای بخشش، لطفاً روی پیام کاربر ریپلای کنید.")
-        asyncio.create_task(delete_later(context.bot, update.message.chat_id, msg.message_id, 3))
+    target_user_id = None
+    target_name = "کاربر"
+
+    # CASE A: Admin replied to a message
+    if update.message.reply_to_message:
+        target_user_id = update.message.reply_to_message.from_user.id
+        target_name = update.message.reply_to_message.from_user.mention_html()
+    
+    # CASE B: Admin sent an ID (e.g., /unmute 123456789)
+    elif context.args:
+        try:
+            target_user_id = int(context.args[0])
+            target_name = f"<a href='tg://user?id={target_user_id}'>{target_user_id}</a>"
+        except ValueError:
+            pass
+
+    # If no user found in Reply or ID
+    if not target_user_id:
+        msg = await context.bot.send_message(
+            chat_id=update.message.chat_id, 
+            text="⚠️ لطفاً روی پیام کاربر ریپلای کنید <b>یا</b> شناسه عددی او را وارد کنید.\nمثال: <code>/unmute 123456789</code>",
+            parse_mode="HTML"
+        )
+        asyncio.create_task(delete_later(context.bot, update.message.chat_id, msg.message_id, 5))
         return
     
-    target_user = update.message.reply_to_message.from_user
-    
     try:
-        # A. Unban the user (allows them to rejoin)
-        await context.bot.unban_chat_member(chat_id=update.message.chat_id, user_id=target_user.id)
+        # A. Unban
+        await context.bot.unban_chat_member(chat_id=update.message.chat_id, user_id=target_user_id)
         
-        # B. Reset warnings in Database
-        db.reset_warns(target_user.id)
+        # B. Reset warnings
+        db.reset_warns(target_user_id)
         
-        # C. Also try to Lift Restrictions (if they are still in chat)
-        await context.bot.restrict_chat_member(
-            chat_id=update.message.chat_id,
-            user_id=target_user.id,
-            permissions=ChatPermissions(
-                can_send_messages=True, can_send_media_messages=True,
-                can_send_polls=True, can_add_web_page_previews=True
+        # C. Lift Restrictions (if user is in chat)
+        try:
+            await context.bot.restrict_chat_member(
+                chat_id=update.message.chat_id,
+                user_id=target_user_id,
+                permissions=ChatPermissions(
+                    can_send_messages=True, can_send_media_messages=True,
+                    can_send_polls=True, can_add_web_page_previews=True
+                )
             )
-        )
-        msg_text = f"✅ کاربر {target_user.mention_html()} بخشیده شد.\n(رفع بن + حذف اخطارها)"
+        except Exception:
+            pass # User might not be in the group, which is fine
+
+        msg_text = f"✅ محدودیت‌های {target_name} برداشته شد.\n(رفع بن + حذف اخطارها)"
     except Exception as e:
-        # If user is not in chat, restrict_chat_member might fail, but unban usually works
-        msg_text = f"✅ کاربر {target_user.mention_html()} رفع بن شد و اخطارها پاک شدند."
+        msg_text = f"❌ خطا در بخشش کاربر: {e}"
     
-    # 2. Send Confirmation
+    # Send Confirmation
     response = await context.bot.send_message(chat_id=update.message.chat_id, text=msg_text, parse_mode="HTML")
-    
-    # 3. Flash Delete
     asyncio.create_task(delete_later(context.bot, update.message.chat_id, response.message_id, 5))
 
 
