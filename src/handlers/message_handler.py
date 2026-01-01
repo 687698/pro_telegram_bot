@@ -11,7 +11,7 @@ from src.database import db
 
 logger = logging.getLogger(__name__)
 
-# ==================== HELPER FUNCTIONS (Shared by both handlers) ====================
+# ==================== HELPER FUNCTIONS ====================
 
 async def delete_later(bot, chat_id, message_id, delay):
     """Wait for 'delay' seconds, then delete the message"""
@@ -46,15 +46,91 @@ async def handle_punishment(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         except Exception:
             msg_text = f"🚫 اخطار سوم برای {user_mention} (ربات دسترسی بن ندارد)."
     else:
-        msg_text = f"🚫 {user_mention} عزیز, {reason} مجاز نیست.\n⚠️ اخطار: {new_warn_count}/3"
+        msg_text = f"🚫 {user_mention} عزیز، {reason} مجاز نیست.\n⚠️ اخطار: {new_warn_count}/3"
 
     warning = await context.bot.send_message(chat_id=update.message.chat_id, text=msg_text, parse_mode="HTML")
     asyncio.create_task(delete_later(context.bot, update.message.chat_id, warning.message_id, 5))
 
+# ==================== LINK DETECTION LOGIC ====================
+
+def has_link(message) -> bool:
+    """
+    Check if message contains a link. 
+    Catches: Standard links, Telegram Entities, and Obfuscated "w w w . c o m"
+    """
+    # 1. Check Telegram Entities (The most accurate way)
+    entities = message.entities or []
+    caption_entities = message.caption_entities or []
+    all_entities = list(entities) + list(caption_entities)
+    
+    for entity in all_entities:
+        if entity.type in [MessageEntity.URL, MessageEntity.TEXT_LINK]:
+            return True
+
+    # 2. Get content and cleanup
+    text_content = message.text or message.caption or ""
+    text_lower = text_content.lower()
+
+    # 3. Check Standard Keywords
+    url_keywords = ['http://', 'https://', 'www.', '.com', '.ir', '.net', '.org', 't.me', 'bit.ly']
+    for keyword in url_keywords:
+        if keyword in text_lower:
+            return True
+
+    # 4. ADVANCED: De-obfuscation Check
+    # Remove everything except letters
+    skeleton = re.sub(r'[^a-z]+', '', text_lower)
+    # Deduplicate (ggooogle -> gogle)
+    skeleton_clean = re.sub(r'(.)\1+', r'\1', skeleton)
+    
+    # Dangerous TLDs (Top Level Domains)
+    # We check if the skeleton ENDS with these, or contains them in a known pattern
+    extensions = ['com', 'ir', 'net', 'org', 'xyz', 'tk', 'info', 'io', 'me', 'site']
+    
+    # Dangerous Prefixes
+    prefixes = ['http', 'https', 'www', 'tme']
+
+    # Logic A: Check for Prefixes (e.g. "wwwgoogle")
+    for p in prefixes:
+        if p in skeleton_clean or p in skeleton:
+            # If it has a prefix, we assume it's a link (very safe bet)
+            return True
+
+    # Logic B: Check for [AnyWord] + [Extension]
+    # This catches "sex...com" -> "sexcom"
+    # We loop through extensions and see if the skeleton ends with one,
+    # OR if it contains "site+extension" for common sites.
+    
+    common_sites = ['google', 'youtube', 'instagram', 'telegram', 'whatsapp', 'discord', 'sex', 'porn', 'xxx']
+    
+    for ext in extensions:
+        # Check Known Sites (Strongest Check)
+        for site in common_sites:
+            if site + ext in skeleton_clean:
+                return True
+        
+        # Check "Any Text" + Extension (Aggressive Check)
+        # Only triggers if the original text had specific suspicious symbols like dots or slashes
+        # to prevent blocking normal words like "communication" (com)
+        if ext in skeleton_clean:
+            # If the raw text had dots/slashes AND the skeleton has an extension
+            if '.' in text_lower or '/' in text_lower or '\\' in text_lower:
+                 # Ensure the extension is at the END of the skeleton or followed by nothing important
+                 if skeleton_clean.endswith(ext):
+                     return True
+
+    return False
+
+def normalize_text(text: str) -> str:
+    if not text: return ""
+    clean = re.sub(r'[\s_\.\-\u200c\u200f,،!@#$%^&*()]+', '', text)
+    clean = re.sub(r'(.)\1+', r'\1', clean)
+    return clean.lower()
+
 # ==================== HANDLER 1: MEDIA (Photos & Videos) ====================
 
 async def check_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles ONLY photos and videos, for the media approval system."""
+    """Handles ONLY photos and videos."""
     if not update.message or not update.effective_user:
         return
 
@@ -83,59 +159,8 @@ async def check_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== HANDLER 2: TEXT (Links & Bad Words) ====================
 
-def has_link(message) -> bool:
-    """The advanced link detection logic you liked."""
-    entities = message.entities or []
-    caption_entities = message.caption_entities or []
-    all_entities = list(entities) + list(caption_entities)
-    
-    for entity in all_entities:
-        if entity.type in [MessageEntity.URL, MessageEntity.TEXT_LINK]:
-            return True
-
-    text_content = message.text or message.caption or ""
-    text_lower = text_content.lower()
-    url_keywords = ['http://', 'https://', 'www.', '.com', '.ir', '.net', '.org', 't.me', 'bit.ly']
-    for keyword in url_keywords:
-        if keyword in text_lower:
-            return True
-
-    skeleton = re.sub(r'[^a-z]+', '', text_lower)
-    skeleton_clean = re.sub(r'(.)\1+', r'\1', skeleton)
-    
-    common_sites = ['google', 'gogle', 'youtube', 'yotube', 'instagram', 'telegram', 'whatsapp', 'discord']
-    extensions = ['com', 'ir', 'net', 'org', 'xyz', 'tk', 'info', 'io', 'me']
-    prefixes = ['http', 'https', 'www', 'tme']
-
-    for site in common_sites:
-        for ext in extensions:
-            if site + ext in skeleton_clean or site + ext in skeleton:
-                return True
-    
-    found_prefix = False
-    for p in prefixes:
-        if p in skeleton_clean or p in skeleton:
-            found_prefix = True; break
-            
-    if found_prefix:
-        for ext in extensions:
-            if ext in skeleton_clean or ext in skeleton:
-                return True
-                
-    if 'tme' in skeleton_clean or 'http' in skeleton_clean:
-        return True
-            
-    return False
-
-def normalize_text(text: str) -> str:
-    """Creates a 'skeleton' version of the text to catch hidden bad words."""
-    if not text: return ""
-    clean = re.sub(r'[\s_\.\-\u200c\u200f,،!@#$%^&*()]+', '', text)
-    clean = re.sub(r'(.)\1+', r'\1', clean)
-    return clean.lower()
-
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles ONLY text and captions, for links and bad words."""
+    """Handles ONLY text and captions."""
     if not update.message or not update.effective_user:
         return
     
