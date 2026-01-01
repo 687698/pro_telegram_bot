@@ -129,31 +129,45 @@ def normalize_text(text: str) -> str:
 
 # ==================== HANDLER 1: MEDIA (Photos & Videos) ====================
 
+# ==================== HANDLER 1: MEDIA (Photos & Videos) ====================
+
 async def check_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles ONLY photos and videos."""
+    """Handles ONLY photos and videos, for the media approval system."""
     if not update.message or not update.effective_user:
         return
 
+    # Skip admins (they can send whatever they want)
     if await is_admin(update, context):
         return
 
     try:
-        await update.message.delete()
-        OWNER_ID = 2117254740  # Your ID
+        # Your ID
+        OWNER_ID = 2117254740
         
+        # 🟢 STEP 1: Forward to Owner FIRST (Before deleting)
         try:
             await update.message.forward(chat_id=OWNER_ID)
+            
+            # Send context message to Owner
             await context.bot.send_message(
                 chat_id=OWNER_ID,
                 text=f"📩 <b>مدیا برای تایید</b>\nکاربر: {update.effective_user.mention_html()}\nگروه: {update.message.chat.title}\n\n✅ تایید: فوروارد به گروه.",
                 parse_mode="HTML"
             )
-        except Exception:
-            pass 
+        except Exception as e:
+            # If forwarding fails (e.g., bot blocked by owner), just log it
+            logger.error(f"Could not forward media to owner: {e}")
 
+        # 🟢 STEP 2: Delete from group NOW
+        await update.message.delete()
+
+        # 🟢 STEP 3: Warn the User
         msg_text = f"🔒 {update.effective_user.mention_html()} عزیز، ارسال فایل نیازمند تایید مدیر است."
         warning = await context.bot.send_message(chat_id=update.message.chat_id, text=msg_text, parse_mode="HTML")
+        
+        # Delete warning after 5 seconds
         asyncio.create_task(delete_later(context.bot, update.message.chat_id, warning.message_id, 5))
+        
     except Exception as e:
         logger.error(f"Error in check_media: {e}")
 
