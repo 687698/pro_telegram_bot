@@ -147,7 +147,7 @@ async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     asyncio.create_task(delete_later(context.bot, update.message.chat_id, response.message_id, 5))
 
 async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /unmute command - Unban via Reply OR User ID"""
+    """Handle /unmute command - Via Reply, ID, or @Username"""
     if not update.message or not update.effective_user:
         return
     
@@ -163,29 +163,48 @@ async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target_user_id = None
     target_name = "کاربر"
 
-    # CASE A: Admin replied to a message
+    # CASE A: Reply
     if update.message.reply_to_message:
         target_user_id = update.message.reply_to_message.from_user.id
         target_name = update.message.reply_to_message.from_user.mention_html()
     
-    # CASE B: Admin sent an ID (e.g., /unmute 123456789)
+    # CASE B: Arguments (ID or Username)
     elif context.args:
-        try:
-            target_user_id = int(context.args[0])
-            target_name = f"<a href='tg://user?id={target_user_id}'>{target_user_id}</a>"
-        except ValueError:
-            pass
+        arg = context.args[0]
+        
+        # Check if it looks like a username (Starts with @ or contains letters)
+        if arg.startswith("@") or not arg.isdigit():
+            # Look up in Database
+            found_id = db.get_user_id_by_username(arg)
+            if found_id:
+                target_user_id = found_id
+                target_name = f"{arg}"
+            else:
+                msg = await context.bot.send_message(
+                    chat_id=update.message.chat_id,
+                    text=f"❌ کاربر {arg} در حافظه ربات پیدا نشد.\n(فقط کاربرانی که قبلاً پیام داده‌اند در حافظه هستند)"
+                )
+                asyncio.create_task(delete_later(context.bot, update.message.chat_id, msg.message_id, 5))
+                return
+        else:
+            # Assume it's a numeric ID
+            try:
+                target_user_id = int(arg)
+                target_name = f"<a href='tg://user?id={target_user_id}'>{target_user_id}</a>"
+            except ValueError:
+                pass
 
-    # If no user found in Reply or ID
+    # If still no user found
     if not target_user_id:
         msg = await context.bot.send_message(
             chat_id=update.message.chat_id, 
-            text="⚠️ لطفاً روی پیام کاربر ریپلای کنید <b>یا</b> شناسه عددی او را وارد کنید.\nمثال: <code>/unmute 123456789</code>",
+            text="⚠️ لطفاً روی پیام کاربر ریپلای کنید یا نام کاربری/آیدی او را وارد کنید.\nمثال: /unmute @username",
             parse_mode="HTML"
         )
         asyncio.create_task(delete_later(context.bot, update.message.chat_id, msg.message_id, 5))
         return
     
+    # Perform Unban
     try:
         # A. Unban
         await context.bot.unban_chat_member(chat_id=update.message.chat_id, user_id=target_user_id)
@@ -193,7 +212,7 @@ async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # B. Reset warnings
         db.reset_warns(target_user_id)
         
-        # C. Lift Restrictions (if user is in chat)
+        # C. Lift Restrictions
         try:
             await context.bot.restrict_chat_member(
                 chat_id=update.message.chat_id,
@@ -204,9 +223,9 @@ async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             )
         except Exception:
-            pass # User might not be in the group, which is fine
+            pass
 
-        msg_text = f"✅ محدودیت‌های {target_name} برداشته شد.\n(رفع بن + حذف اخطارها)"
+        msg_text = f"✅ محدودیت‌های {target_name} برداشته شد."
     except Exception as e:
         msg_text = f"❌ خطا در بخشش کاربر: {e}"
     

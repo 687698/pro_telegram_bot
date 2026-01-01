@@ -126,6 +126,25 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting stats for user {user_id}: {e}")
             return None
+
+    def get_user_id_by_username(self, username: str) -> Optional[int]:
+        """
+        Find user ID by username.
+        """
+        try:
+            # Remove @ if present
+            clean_username = username.lstrip("@")
+            
+            # Search in database
+            response = self.client.table("users").select("user_id").eq("username", clean_username).execute()
+            
+            if response.data and len(response.data) > 0:
+                return response.data[0]['user_id']
+            
+            return None
+        except Exception as e:
+            logger.error(f"Error finding user by username: {e}")
+            return None
     
     # ==================== Banned Words Management ====================
     
