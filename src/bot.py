@@ -84,7 +84,7 @@ async def setup_application():
     # Import handlers
     from src.handlers.commands import start, help_command, stats
     from src.handlers.moderation import warn, ban, unmute, addword
-    from src.handlers.message_handler import handle_text, check_media
+    from src.handlers.message_handler import handle_text, check_media, handle_approval
     
     # Add handlers
     application.add_handler(CommandHandler("start", start))
@@ -94,6 +94,8 @@ async def setup_application():
     application.add_handler(CommandHandler("ban", ban))
     application.add_handler(CommandHandler("unmute", unmute))
     application.add_handler(CommandHandler("addword", addword))
+    # 🟢 NEW: Approval Handler (Listens for "تایید" in Private Chat)
+    application.add_handler(MessageHandler(filters.Regex(r"^تایید$") & filters.ChatType.PRIVATE, handle_approval))
    
     # 🟢 NEW: Separate handlers for stability
     # Handler 1: Catches only Photos and Videos

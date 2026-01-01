@@ -11,6 +11,9 @@ from src.database import db
 
 logger = logging.getLogger(__name__)
 
+# 🟢 MEMORY: Stores {MessageID_in_Admin_Chat : Original_Group_ID}
+PENDING_APPROVALS = {}
+
 # ==================== HELPER FUNCTIONS ====================
 
 async def delete_later(bot, chat_id, message_id, delay):
@@ -51,14 +54,88 @@ async def handle_punishment(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     warning = await context.bot.send_message(chat_id=update.message.chat_id, text=msg_text, parse_mode="HTML")
     asyncio.create_task(delete_later(context.bot, update.message.chat_id, warning.message_id, 5))
 
-# ==================== LINK DETECTION LOGIC ====================
+# ==================== HANDLER 1: APPROVAL LOGIC (NEW) ====================
+
+async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Runs when Admin replies 'تایید' to a forwarded media.
+    Sends the media back to the original group.
+    """
+    # 1. Check if it's the Owner
+    OWNER_ID = 2117254740 # Your ID
+    if update.effective_user.id != OWNER_ID:
+        return
+
+    # 2. Check if replying to a message
+    if not update.message.reply_to_message:
+        return
+
+    # 3. Check if we remember this message
+    target_msg_id = update.message.reply_to_message.message_id
+    group_id = PENDING_APPROVALS.get(target_msg_id)
+
+    if not group_id:
+        await update.message.reply_text("⚠️ اطلاعات این پیام پیدا نشد (شاید ربات ریستارت شده است).")
+        return
+
+    try:
+        # 4. Copy the media back to the group
+        await update.message.reply_to_message.copy(
+            chat_id=group_id,
+            caption=f"✅ <b>تایید شد</b>\nتوسط مدیر گروه.",
+            parse_mode="HTML"
+        )
+        
+        # 5. Clean up memory and confirm to admin
+        del PENDING_APPROVALS[target_msg_id]
+        await update.message.reply_text("✅ با موفقیت به گروه ارسال شد.")
+        
+    except Exception as e:
+        logger.error(f"Error approving media: {e}")
+        await update.message.reply_text(f"❌ خطا در ارسال: {e}")
+
+
+# ==================== HANDLER 2: MEDIA (Photos & Videos) ====================
+
+async def check_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles ONLY photos and videos."""
+    if not update.message or not update.effective_user:
+        return
+
+    if await is_admin(update, context):
+        return
+
+    try:
+        OWNER_ID = 2117254740  # Your ID
+        
+        # 🟢 STEP 1: Forward to Owner & SAVE TO MEMORY
+        try:
+            forwarded_msg = await update.message.forward(chat_id=OWNER_ID)
+            
+            # Save the ID so we know which group it belongs to
+            PENDING_APPROVALS[forwarded_msg.message_id] = update.message.chat_id
+            
+            await context.bot.send_message(
+                chat_id=OWNER_ID,
+                text=f"📩 <b>مدیا برای تایید</b>\nکاربر: {update.effective_user.mention_html()}\nگروه: {update.message.chat.title}\n\n✅ برای انتشار، روی مدیا ریپلای کنید: <b>تایید</b>",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass 
+
+        # 🟢 STEP 2: Delete from group
+        await update.message.delete()
+
+        msg_text = f"🔒 {update.effective_user.mention_html()} عزیز، ارسال فایل نیازمند تایید مدیر است."
+        warning = await context.bot.send_message(chat_id=update.message.chat_id, text=msg_text, parse_mode="HTML")
+        asyncio.create_task(delete_later(context.bot, update.message.chat_id, warning.message_id, 5))
+    except Exception as e:
+        logger.error(f"Error in check_media: {e}")
+
+# ==================== HANDLER 3: TEXT (Links & Bad Words) ====================
 
 def has_link(message) -> bool:
-    """
-    Check if message contains a link. 
-    Catches: Standard links, Telegram Entities, and Obfuscated "w w w . c o m"
-    """
-    # 1. Check Telegram Entities (The most accurate way)
+    """Checks for links (Entities, Standard, Obfuscated)"""
     entities = message.entities or []
     caption_entities = message.caption_entities or []
     all_entities = list(entities) + list(caption_entities)
@@ -67,58 +144,37 @@ def has_link(message) -> bool:
         if entity.type in [MessageEntity.URL, MessageEntity.TEXT_LINK]:
             return True
 
-    # 2. Get content and cleanup
     text_content = message.text or message.caption or ""
     text_lower = text_content.lower()
-
-    # 3. Check Standard Keywords
+    
+    # Simple Keywords
     url_keywords = ['http://', 'https://', 'www.', '.com', '.ir', '.net', '.org', 't.me', 'bit.ly']
     for keyword in url_keywords:
-        if keyword in text_lower:
-            return True
+        if keyword in text_lower: return True
 
-    # 4. ADVANCED: De-obfuscation Check
-    # Remove everything except letters
+    # Advanced Skeleton Check
     skeleton = re.sub(r'[^a-z]+', '', text_lower)
-    # Deduplicate (ggooogle -> gogle)
     skeleton_clean = re.sub(r'(.)\1+', r'\1', skeleton)
     
-    # Dangerous TLDs (Top Level Domains)
-    # We check if the skeleton ENDS with these, or contains them in a known pattern
-    extensions = ['com', 'ir', 'net', 'org', 'xyz', 'tk', 'info', 'io', 'me', 'site']
-    
-    # Dangerous Prefixes
+    common_sites = ['google', 'gogle', 'youtube', 'yotube', 'instagram', 'telegram', 'whatsapp', 'discord']
+    extensions = ['com', 'ir', 'net', 'org', 'xyz', 'tk', 'info', 'io', 'me']
     prefixes = ['http', 'https', 'www', 'tme']
 
-    # Logic A: Check for Prefixes (e.g. "wwwgoogle")
+    for site in common_sites:
+        for ext in extensions:
+            if site + ext in skeleton_clean or site + ext in skeleton: return True
+    
+    found_prefix = False
     for p in prefixes:
         if p in skeleton_clean or p in skeleton:
-            # If it has a prefix, we assume it's a link (very safe bet)
-            return True
-
-    # Logic B: Check for [AnyWord] + [Extension]
-    # This catches "sex...com" -> "sexcom"
-    # We loop through extensions and see if the skeleton ends with one,
-    # OR if it contains "site+extension" for common sites.
-    
-    common_sites = ['google', 'youtube', 'instagram', 'telegram', 'whatsapp', 'discord', 'sex', 'porn', 'xxx']
-    
-    for ext in extensions:
-        # Check Known Sites (Strongest Check)
-        for site in common_sites:
-            if site + ext in skeleton_clean:
-                return True
-        
-        # Check "Any Text" + Extension (Aggressive Check)
-        # Only triggers if the original text had specific suspicious symbols like dots or slashes
-        # to prevent blocking normal words like "communication" (com)
-        if ext in skeleton_clean:
-            # If the raw text had dots/slashes AND the skeleton has an extension
-            if '.' in text_lower or '/' in text_lower or '\\' in text_lower:
-                 # Ensure the extension is at the END of the skeleton or followed by nothing important
-                 if skeleton_clean.endswith(ext):
-                     return True
-
+            found_prefix = True; break
+            
+    if found_prefix:
+        for ext in extensions:
+            if ext in skeleton_clean or ext in skeleton: return True
+                
+    if 'tme' in skeleton_clean or 'http' in skeleton_clean: return True
+            
     return False
 
 def normalize_text(text: str) -> str:
@@ -126,52 +182,6 @@ def normalize_text(text: str) -> str:
     clean = re.sub(r'[\s_\.\-\u200c\u200f,،!@#$%^&*()]+', '', text)
     clean = re.sub(r'(.)\1+', r'\1', clean)
     return clean.lower()
-
-# ==================== HANDLER 1: MEDIA (Photos & Videos) ====================
-
-# ==================== HANDLER 1: MEDIA (Photos & Videos) ====================
-
-async def check_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles ONLY photos and videos, for the media approval system."""
-    if not update.message or not update.effective_user:
-        return
-
-    # Skip admins (they can send whatever they want)
-    if await is_admin(update, context):
-        return
-
-    try:
-        # Your ID
-        OWNER_ID = 2117254740
-        
-        # 🟢 STEP 1: Forward to Owner FIRST (Before deleting)
-        try:
-            await update.message.forward(chat_id=OWNER_ID)
-            
-            # Send context message to Owner
-            await context.bot.send_message(
-                chat_id=OWNER_ID,
-                text=f"📩 <b>مدیا برای تایید</b>\nکاربر: {update.effective_user.mention_html()}\nگروه: {update.message.chat.title}\n\n✅ تایید: فوروارد به گروه.",
-                parse_mode="HTML"
-            )
-        except Exception as e:
-            # If forwarding fails (e.g., bot blocked by owner), just log it
-            logger.error(f"Could not forward media to owner: {e}")
-
-        # 🟢 STEP 2: Delete from group NOW
-        await update.message.delete()
-
-        # 🟢 STEP 3: Warn the User
-        msg_text = f"🔒 {update.effective_user.mention_html()} عزیز، ارسال فایل نیازمند تایید مدیر است."
-        warning = await context.bot.send_message(chat_id=update.message.chat_id, text=msg_text, parse_mode="HTML")
-        
-        # Delete warning after 5 seconds
-        asyncio.create_task(delete_later(context.bot, update.message.chat_id, warning.message_id, 5))
-        
-    except Exception as e:
-        logger.error(f"Error in check_media: {e}")
-
-# ==================== HANDLER 2: TEXT (Links & Bad Words) ====================
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles ONLY text and captions."""
@@ -190,7 +200,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     message_text_lower = message_text.lower()
     
-    # 1. LINK DETECTION
     if has_link(message):
         try:
             await message.delete()
@@ -200,12 +209,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Error handling link: {e}")
             return
     
-    # 2. BANNED WORDS DETECTION
     banned_words = db.get_banned_words()
     if banned_words:
         found_banned_words = []
         cleaned_message = normalize_text(message_text_lower)
-        
         for banned_word in banned_words:
             if banned_word in message_text_lower or banned_word in cleaned_message:
                 found_banned_words.append(banned_word)
