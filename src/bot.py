@@ -102,7 +102,7 @@ async def setup_application():
     # Handler 1: Catches only Photos and Videos
     # 🟢 FIX: Catch Photos, Videos, GIFs (Animation), and Stickers
     application.add_handler(MessageHandler(
-        filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.STICKER, 
+        filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.Sticker.ALL, 
         check_media
     ))
     
