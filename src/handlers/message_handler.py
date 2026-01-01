@@ -65,17 +65,18 @@ async def handle_punishment(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 def normalize_text(text: str) -> str:
     """
-    NUCLEAR CLEANING: Removes ALL symbols to catch hidden words.
-    Input: "ع /// نننن ... ت،،، ر"
-    Output: "عنتر"
+    NUCLEAR CLEANING v2: Removes ALL symbols (including Persian punctuation).
+    Input: "تت/// ||| ببل ... ییی ،،، غ"
+    Output: "تبلیغ"
     """
     if not text: return ""
     
-    # 1. Remove everything that is NOT a letter or number (Persian & English)
-    # This strips spaces, dots, commas, slashes, emojis, etc.
-    clean = re.sub(r'[^\w\d\u0600-\u06FF]', '', text)
+    # 1. Remove everything that is NOT a Word Character (\w)
+    # \w matches [a-zA-Z0-9] AND Unicode Letters (Persian/Arabic letters).
+    # It automatically excludes symbols like '///', '...', '|||', and '،'
+    clean = re.sub(r'[^\w]', '', text)
     
-    # 2. Remove underscores (often used as spacers like "b_a_d")
+    # 2. Remove underscores (because \w includes underscores)
     clean = clean.replace('_', '')
     
     # 3. Deduplicate (remove repeating characters)
