@@ -58,47 +58,68 @@ async def handle_punishment(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Runs when Admin replies 'تایید' to a forwarded media.
-    Sends the media back to the original group.
+    Runs when Admin replies 'تایید' or 'رد' to a forwarded media.
     """
     # 1. Check if it's the Owner
     OWNER_ID = 2117254740 # Your ID
     if update.effective_user.id != OWNER_ID:
         return
 
-    # 2. Check if replying to a message
+    # 2. Check if replying
     if not update.message.reply_to_message:
         return
 
-    # 3. Check if we remember this message
+    # 3. Check Memory
     target_msg_id = update.message.reply_to_message.message_id
-    group_id = PENDING_APPROVALS.get(target_msg_id)
+    data = PENDING_APPROVALS.get(target_msg_id)
 
-    if not group_id:
+    if not data:
         await update.message.reply_text("⚠️ اطلاعات این پیام پیدا نشد (شاید ربات ریستارت شده است).")
         return
 
+    group_id = data['chat_id']
+    user_id = data['user_id']
+    command = update.message.text # "تایید" or "رد"
+
     try:
-        # 4. Copy the media back to the group
-        await update.message.reply_to_message.copy(
-            chat_id=group_id,
-            caption=f"✅ <b>تایید شد</b>\nتوسط مدیر گروه.",
-            parse_mode="HTML"
-        )
-        
-        # 5. Clean up memory and confirm to admin
+        if command == "تایید":
+            # Copy media back to group
+            await update.message.reply_to_message.copy(
+                chat_id=group_id,
+                caption=f"✅ <b>تایید شد</b>\nتوسط مدیر گروه.",
+                parse_mode="HTML"
+            )
+            await update.message.reply_text("✅ با موفقیت منتشر شد.")
+            
+        elif command == "رد":
+            # Get user info to tag them
+            try:
+                member = await context.bot.get_chat_member(group_id, user_id)
+                user_mention = member.user.mention_html()
+            except:
+                user_mention = "کاربر"
+
+            # Send Rejection Message to Group
+            reject_msg = f"❌ مدیا ارسالی توسط {user_mention} **تایید نشد** و رد شد."
+            msg = await context.bot.send_message(chat_id=group_id, text=reject_msg, parse_mode="HTML")
+            
+            # Delete rejection message after 10 seconds (optional clean up)
+            asyncio.create_task(delete_later(context.bot, group_id, msg.message_id, 10))
+            
+            await update.message.reply_text("❌ پیام رد شد و به کاربر اطلاع داده شد.")
+
+        # Clean up memory
         del PENDING_APPROVALS[target_msg_id]
-        await update.message.reply_text("✅ با موفقیت به گروه ارسال شد.")
         
     except Exception as e:
-        logger.error(f"Error approving media: {e}")
-        await update.message.reply_text(f"❌ خطا در ارسال: {e}")
+        logger.error(f"Error handling approval: {e}")
+        await update.message.reply_text(f"❌ خطا: {e}")
 
 
 # ==================== HANDLER 2: MEDIA (Photos & Videos) ====================
 
 async def check_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles ONLY photos and videos."""
+    """Handles photos, videos, gifs, stickers."""
     if not update.message or not update.effective_user:
         return
 
@@ -108,25 +129,28 @@ async def check_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         OWNER_ID = 2117254740  # Your ID
         
-        # 🟢 STEP 1: Forward to Owner & SAVE TO MEMORY
+        # 🟢 STEP 1: Forward & SAVE DATA
         try:
             forwarded_msg = await update.message.forward(chat_id=OWNER_ID)
             
-            # Save the ID so we know which group it belongs to
-            PENDING_APPROVALS[forwarded_msg.message_id] = update.message.chat_id
+            # Save Group ID AND User ID
+            PENDING_APPROVALS[forwarded_msg.message_id] = {
+                'chat_id': update.message.chat_id,
+                'user_id': update.effective_user.id
+            }
             
             await context.bot.send_message(
                 chat_id=OWNER_ID,
-                text=f"📩 <b>مدیا برای تایید</b>\nکاربر: {update.effective_user.mention_html()}\nگروه: {update.message.chat.title}\n\n✅ برای انتشار، روی مدیا ریپلای کنید: <b>تایید</b>",
+                text=f"📩 <b>مدیا برای بررسی</b>\nکاربر: {update.effective_user.mention_html()}\nگروه: {update.message.chat.title}\n\n✅ تایید: ارسال <b>تایید</b>\n❌ رد: ارسال <b>رد</b>",
                 parse_mode="HTML"
             )
         except Exception:
             pass 
 
-        # 🟢 STEP 2: Delete from group
+        # 🟢 STEP 2: Delete & Warn
         await update.message.delete()
 
-        msg_text = f"🔒 {update.effective_user.mention_html()} عزیز، ارسال فایل نیازمند تایید مدیر است."
+        msg_text = f"🔒 {update.effective_user.mention_html()} عزیز، فایل شما برای بررسی به مدیر ارسال شد."
         warning = await context.bot.send_message(chat_id=update.message.chat_id, text=msg_text, parse_mode="HTML")
         asyncio.create_task(delete_later(context.bot, update.message.chat_id, warning.message_id, 5))
     except Exception as e:

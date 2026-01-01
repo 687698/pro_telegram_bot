@@ -95,11 +95,16 @@ async def setup_application():
     application.add_handler(CommandHandler("unmute", unmute))
     application.add_handler(CommandHandler("addword", addword))
     # 🟢 NEW: Approval Handler (Listens for "تایید" in Private Chat)
-    application.add_handler(MessageHandler(filters.Regex(r"^تایید$") & filters.ChatType.PRIVATE, handle_approval))
+    # 🟢 FIX: Listen for BOTH "تایید" (Approve) and "رد" (Reject)
+    application.add_handler(MessageHandler(filters.Regex(r"^(تایید|رد)$") & filters.ChatType.PRIVATE, handle_approval))
    
     # 🟢 NEW: Separate handlers for stability
     # Handler 1: Catches only Photos and Videos
-    application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, check_media))
+    # 🟢 FIX: Catch Photos, Videos, GIFs (Animation), and Stickers
+    application.add_handler(MessageHandler(
+        filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.STICKER, 
+        check_media
+    ))
     
     # Handler 2: Catches only Text and Captions
     application.add_handler(MessageHandler((filters.TEXT | filters.CAPTION) & ~filters.COMMAND, handle_text))
