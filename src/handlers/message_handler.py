@@ -8,10 +8,11 @@ import asyncio
 from telegram import Update, ChatMember, ChatPermissions, MessageEntity
 from telegram.ext import ContextTypes
 from src.database import db
+from src.ai_safety import scan_media # 🟢 Import the new AI module
 
 logger = logging.getLogger(__name__)
 
-# 🟢 MEMORY: Stores {MessageID : Data} for Approval System
+# MEMORY for Manual Approval Fallback
 PENDING_APPROVALS = {}
 
 # ==================== HELPER FUNCTIONS ====================
@@ -25,7 +26,6 @@ async def delete_later(bot, chat_id, message_id, delay):
         pass
 
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Check if the user is a group administrator"""
     if not update.message or not update.effective_user:
         return False
     try:
@@ -38,14 +38,12 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         return False
 
 async def log_spam_event(user_id: int, username: str, spam_type: str, content: str, chat_id: int):
-    """Log spam events to the console (Restored!)"""
     try:
         logger.warning(f"🚨 Spam: {spam_type} | User: {username}({user_id}) | Content: {content}")
     except Exception:
         pass
 
 async def handle_punishment(update: Update, context: ContextTypes.DEFAULT_TYPE, user, reason: str):
-    """Helper to add warn, check for ban, and send flash message"""
     new_warn_count = db.add_warn(user.id)
     user_mention = user.mention_html()
     
@@ -61,35 +59,16 @@ async def handle_punishment(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     warning = await context.bot.send_message(chat_id=update.message.chat_id, text=msg_text, parse_mode="HTML")
     asyncio.create_task(delete_later(context.bot, update.message.chat_id, warning.message_id, 5))
 
-# ==================== LOGIC: TEXT CLEANING & CHECKING ====================
+# ==================== LOGIC: TEXT CLEANING ====================
 
 def normalize_text(text: str) -> str:
-    """
-    NUCLEAR CLEANING v2: Removes ALL symbols (including Persian punctuation).
-    Input: "تت/// ||| ببل ... ییی ،،، غ"
-    Output: "تبلیغ"
-    """
     if not text: return ""
-    
-    # 1. Remove everything that is NOT a Word Character (\w)
-    # \w matches [a-zA-Z0-9] AND Unicode Letters (Persian/Arabic letters).
-    # It automatically excludes symbols like '///', '...', '|||', and '،'
-    clean = re.sub(r'[^\w]', '', text)
-    
-    # 2. Remove underscores (because \w includes underscores)
+    clean = re.sub(r'[^\w\d\u0600-\u06FF]', '', text)
     clean = clean.replace('_', '')
-    
-    # 3. Deduplicate (remove repeating characters)
-    # "nnnoooo" -> "no"
     clean = re.sub(r'(.)\1+', r'\1', clean)
-    
     return clean.lower()
 
 def has_link(message) -> bool:
-    """
-    Checks for links including obfuscated ones like "see /// x ... c oooomm"
-    """
-    # 1. Check Telegram Entities (Best for clickable links)
     entities = message.entities or []
     caption_entities = message.caption_entities or []
     all_entities = list(entities) + list(caption_entities)
@@ -99,49 +78,38 @@ def has_link(message) -> bool:
 
     text_content = message.text or message.caption or ""
     text_lower = text_content.lower()
-
-    # 2. Check Standard Keywords
+    
+    # Standard Keywords
     url_keywords = ['http://', 'https://', 'www.', '.com', '.ir', '.net', '.org', 't.me', 'bit.ly']
     for keyword in url_keywords:
         if keyword in text_lower: return True
 
-    # 3. ADVANCED SKELETON CHECK
-    # Clean the text using the same "Nuclear" logic as banned words
-    # Input: "see /// x ... c oooomm" -> "seexcom"
-    skeleton = re.sub(r'[^a-z]+', '', text_lower) # Keep only English letters
-    skeleton_clean = re.sub(r'(.)\1+', r'\1', skeleton) # Deduplicate
+    # Advanced Skeleton
+    skeleton = re.sub(r'[^a-z]+', '', text_lower)
+    skeleton_clean = re.sub(r'(.)\1+', r'\1', skeleton)
     
-    # Signatures
     extensions = ['com', 'ir', 'net', 'org', 'xyz', 'tk', 'info', 'io', 'me', 'site']
     common_sites = ['google', 'youtube', 'instagram', 'telegram', 'whatsapp', 'sex', 'porn', 'xxx']
     prefixes = ['http', 'https', 'www', 'tme']
 
-    # A. Check Known Sites (Strongest)
     for site in common_sites:
         for ext in extensions:
-            if site + ext in skeleton_clean: return True # Matches "youtubecom", "sexcom"
+            if site + ext in skeleton_clean: return True
 
-    # B. Check Prefixes
     for p in prefixes:
-        if p in skeleton_clean: return True # Matches "www..." or "http..."
+        if p in skeleton_clean: return True
 
-    # C. Check "Suspicious Extension"
-    # If the text has symbols like / or . or , AND ends with a known extension
     has_symbols = bool(re.search(r'[\./,\\_]', text_lower))
     if has_symbols:
         for ext in extensions:
-            # Check if skeleton ends with extension (e.g. "blabla...com")
             if skeleton_clean.endswith(ext):
-                # Ensure it's not just the extension itself (length check > 3)
                 if len(skeleton_clean) > len(ext) + 2:
                     return True
-
     return False
 
 # ==================== HANDLER 1: APPROVAL LOGIC ====================
 
 async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Reply 'تایید' or 'رد' to admin DMs."""
     # 🔴 REPLACE WITH YOUR ID
     OWNER_ID = 2117254740 
     
@@ -184,32 +152,98 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Approval error: {e}")
 
-# ==================== HANDLER 2: MEDIA (Photos & Videos) ====================
+# ==================== HANDLER 2: AI MEDIA CHECK ====================
 
 async def check_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.effective_user: return
     if await is_admin(update, context): return
 
-    try:
-        # 🔴 REPLACE WITH YOUR ID
-        OWNER_ID = 2117254740
+    message = update.message
+    
+    # 1. Determine File and Mime Type
+    file_id = None
+    mime_type = "image/jpeg"
+    
+    if message.photo:
+        file_id = message.photo[-1].file_id # Best quality
+        mime_type = "image/jpeg"
+    elif message.sticker:
+        if message.sticker.is_animated or message.sticker.is_video:
+            return # Skip complex stickers for now to prevent errors
+        file_id = message.sticker.file_id
+        mime_type = "image/webp"
+    elif message.animation:
+        file_id = message.animation.file_id
+        mime_type = "video/mp4"
+    elif message.video:
+        if message.video.file_size > 20 * 1024 * 1024: # Limit 20MB
+            pass # Too big for AI, go to manual approval
+        else:
+            file_id = message.video.file_id
+            mime_type = "video/mp4"
+
+    # 🟢 2. AI ANALYSIS
+    ai_decision = None
+    
+    if file_id:
         try:
-            forwarded_msg = await update.message.forward(chat_id=OWNER_ID)
+            # Download file to memory
+            new_file = await context.bot.get_file(file_id)
+            file_bytes = await new_file.download_as_bytearray()
+            
+            # Send to Gemini
+            banned_words = db.get_banned_words()
+            
+            # Run in separate thread to avoid blocking bot
+            ai_decision = await asyncio.to_thread(
+                scan_media, 
+                bytes(file_bytes), 
+                mime_type, 
+                banned_words
+            )
+        except Exception as e:
+            logger.error(f"AI Scan Failed: {e}")
+            # If AI fails, ai_decision stays None -> Falls back to manual approval
+
+    # 🟢 3. AI RESULT HANDLING
+    if ai_decision:
+        if ai_decision.get("action") == "BLOCK":
+            # AI says it's BAD!
+            await message.delete()
+            reason = ai_decision.get("reason", "محتوای نامناسب")
+            await handle_punishment(update, context, update.effective_user, f"ارسال محتوای نامناسب ({reason})")
+            await log_spam_event(update.effective_user.id, update.effective_user.username, "AI_BLOCK", reason, message.chat.id)
+            return
+        
+        elif ai_decision.get("action") == "ALLOW":
+            # AI says it's SAFE!
+            # Do nothing, let the message stay in the group.
+            return
+
+    # 🟠 4. FALLBACK: MANUAL APPROVAL
+    # If AI failed, rate limited, or file too big -> Send to Admin
+    try:
+        # REPLACE WITH YOUR ID
+        OWNER_ID = 2117254740
+        
+        await message.delete() # Remove from group first
+        
+        try:
+            forwarded_msg = await message.forward(chat_id=OWNER_ID)
             PENDING_APPROVALS[forwarded_msg.message_id] = {
-                'chat_id': update.message.chat_id,
+                'chat_id': message.chat_id,
                 'user_id': update.effective_user.id
             }
-            await context.bot.send_message(chat_id=OWNER_ID, text=f"📩 مدیا برای بررسی:\nتایید / رد")
+            await context.bot.send_message(chat_id=OWNER_ID, text=f"⚠️ <b>هوش مصنوعی خاموش/خطا</b>\nنیاز به تایید دستی:\nتایید / رد", parse_mode="HTML")
         except Exception: pass 
 
-        await update.message.delete()
         msg_text = f"🔒 {update.effective_user.mention_html()} عزیز، فایل شما برای بررسی ارسال شد."
-        warning = await context.bot.send_message(chat_id=update.message.chat_id, text=msg_text, parse_mode="HTML")
-        asyncio.create_task(delete_later(context.bot, update.message.chat_id, warning.message_id, 5))
+        warning = await context.bot.send_message(chat_id=message.chat_id, text=msg_text, parse_mode="HTML")
+        asyncio.create_task(delete_later(context.bot, message.chat_id, warning.message_id, 5))
     except Exception as e:
-        logger.error(f"Media error: {e}")
+        logger.error(f"Manual fallback error: {e}")
 
-# ==================== HANDLER 3: TEXT (Links & Bad Words) ====================
+# ==================== HANDLER 3: TEXT ====================
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.effective_user: return
@@ -221,48 +255,32 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await is_admin(update, context): return
 
     message_text = message.text or message.caption or ""
-    if not message_text:
-        return # No text to check
-        
+    if not message_text: return 
     message_text_lower = message_text.lower()
     
-    # 1. Check Links
     if has_link(message):
         try:
             await message.delete()
             await handle_punishment(update, context, user, "ارسال لینک")
-            # Log the spam event (Restored!)
             await log_spam_event(user.id, user.username or "Unknown", "link", message_text[:100], message.chat_id)
             return
         except Exception: pass
     
-    # 2. Check Banned Words
     banned_words = db.get_banned_words()
     if banned_words:
-        # Nuclear Clean
         cleaned_message = normalize_text(message_text_lower)
-        
         found_banned = False
         found_word = ""
-        
         for word in banned_words:
-            # Check 1: Normal
             if word in message_text_lower:
-                found_banned = True
-                found_word = word
-                break
-            # Check 2: Nuclear Cleaned
+                found_banned = True; found_word = word; break
             word_clean = normalize_text(word)
             if word_clean and word_clean in cleaned_message:
-                found_banned = True
-                found_word = word
-                break
+                found_banned = True; found_word = word; break
         
         if found_banned:
             try:
                 await message.delete()
                 await handle_punishment(update, context, user, "ارسال کلمات نامناسب")
-                # Log the spam event (Restored!)
-                await log_spam_event(user.id, user.username or "Unknown", "banned_word", found_word, message.chat_id)
-                return
+                await log_spam_event(user.id, user.username or "Unknown", "banned_word", found_word, message.chat.id)
             except Exception: pass
