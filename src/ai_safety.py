@@ -27,25 +27,33 @@ def scan_media(content_bytes, mime_type, banned_words_list):
     # Convert list of words to comma-separated string
     banned_txt = ", ".join(banned_words_list)
 
+    # 🟢 SUPER PROMPT: STRICT RULES FOR LINKS, WORDS, AND PORN
     prompt = f"""
     You are a strict Telegram Super Admin Bot.
     Analyze this content (Image, Video, Audio, Sticker, GIF).
     
     STRICT BLOCKING RULES:
-    1. Visible URLs, QR Codes, or Telegram Links (t.me).
-    2. Text/Audio matching these words: [{banned_txt}].
-    3. NSFW, Nudity, Pornography, Gore, Violence.
+    1. 🚫 PORNO/NSFW: Nudity, sexual acts, excessive gore, or violence.
     
-    Return ONLY a JSON object with this format (no markdown):
+    2. 🚫 LINKS (CRITICAL): 
+       - Look for ANY website URL, QR Code, or Telegram link (t.me, @username).
+       - CATCH HIDDEN LINKS: "w w w . g o o g l e . c o m", "google dot com", "t (dot) me".
+       - If you see "www", "http", ".com", ".ir", ".net" -> BLOCK IT.
+    
+    3. 🚫 BANNED WORDS (CRITICAL):
+       - Look for these specific words: [{banned_txt}].
+       - CATCH HIDDEN WORDS: "b a d w o r d", "b.a.d.w.o.r.d", "b_a_d".
+       - If the text is fuzzy or hard to read but looks like a banned word -> BLOCK IT.
+    
+    OUTPUT FORMAT (JSON ONLY):
     {{
         "action": "BLOCK" or "ALLOW",
         "violation": "LINK", "WORD", "NSFW", or "NONE",
-        "reason": "Short explanation"
+        "reason": "Short explanation of what was found"
     }}
     """
 
-    # Safety settings to allow the model to see bad things so it can judge them
-    # (We don't want the model to block itself from seeing the porn)
+    # Disable safety filters so the AI can actually SEE the bad content to judge it
     safety_settings = {
         HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
         HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -56,7 +64,6 @@ def scan_media(content_bytes, mime_type, banned_words_list):
     try:
         model = genai.GenerativeModel('gemini-1.5-flash')
         
-        # Prepare content blob
         content_blob = {
             'mime_type': mime_type,
             'data': content_bytes

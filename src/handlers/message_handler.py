@@ -169,9 +169,12 @@ async def check_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mime_type = "image/jpeg"
     elif message.sticker:
         if message.sticker.is_animated or message.sticker.is_video:
-            return # Skip complex stickers for now to prevent errors
-        file_id = message.sticker.file_id
-        mime_type = "image/webp"
+            # Complex stickers might cause issues, ignore or send to fallback
+            file_id = message.sticker.file_id
+            mime_type = "image/webp"
+        else:
+            file_id = message.sticker.file_id
+            mime_type = "image/webp"
     elif message.animation:
         file_id = message.animation.file_id
         mime_type = "video/mp4"
@@ -223,23 +226,30 @@ async def check_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 🟠 4. FALLBACK: MANUAL APPROVAL
     # If AI failed, rate limited, or file too big -> Send to Admin
     try:
-        # REPLACE WITH YOUR ID
-        OWNER_ID = 2117254740
+        OWNER_ID = 2117254740 # Your ID
         
-        await message.delete() # Remove from group first
-        
+        # 🟢 CORRECTED: FORWARD FIRST
         try:
             forwarded_msg = await message.forward(chat_id=OWNER_ID)
             PENDING_APPROVALS[forwarded_msg.message_id] = {
                 'chat_id': message.chat_id,
                 'user_id': update.effective_user.id
             }
-            await context.bot.send_message(chat_id=OWNER_ID, text=f"⚠️ <b>هوش مصنوعی خاموش/خطا</b>\nنیاز به تایید دستی:\nتایید / رد", parse_mode="HTML")
-        except Exception: pass 
+            await context.bot.send_message(
+                chat_id=OWNER_ID, 
+                text=f"⚠️ <b>هوش مصنوعی خاموش/خطا</b>\nنیاز به تایید دستی:\nتایید / رد", 
+                parse_mode="HTML"
+            )
+        except Exception: 
+            pass 
+
+        # 🟢 CORRECTED: DELETE SECOND
+        await message.delete()
 
         msg_text = f"🔒 {update.effective_user.mention_html()} عزیز، فایل شما برای بررسی ارسال شد."
         warning = await context.bot.send_message(chat_id=message.chat_id, text=msg_text, parse_mode="HTML")
         asyncio.create_task(delete_later(context.bot, message.chat_id, warning.message_id, 5))
+        
     except Exception as e:
         logger.error(f"Manual fallback error: {e}")
 
