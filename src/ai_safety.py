@@ -62,7 +62,8 @@ def scan_media(content_bytes, mime_type, banned_words_list):
     }
 
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
+       # Try specific stable version
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
         
         content_blob = {
             'mime_type': mime_type,
